@@ -4,7 +4,7 @@
 """
 
 # Токен Telegram бота від @BotFather
-BOT_TOKEN = "7578557397:AAFSl9bbjdcViXwAbPE5M9WY47U3QxDNo_8"
+BOT_TOKEN = ""
 
 # Шлях до файлу з водяним знаком
 WATERMARK_PATH = "watermark.png"
