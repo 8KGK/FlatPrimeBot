@@ -7,9 +7,14 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardR
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from io import BytesIO
 import re
+import zipfile
+import os
+from datetime import datetime
 
 from image_processor import process_single_image
 from olx_parser import download_olx_photos
+from rieltor_parser import download_rieltor_photos, is_rieltor_url
+from lun_parser import download_lun_photos, is_lun_url
 from config import BOT_TOKEN
 from database import get_all_users, verify_password, get_user_name, create_sessions_table
 from auth import (
@@ -98,9 +103,10 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     elif text == "🔗 OLX":
         await update.message.reply_text(
-            "🔗 Надішліть посилання на оголошення OLX\n\n"
-            "Приклад:\n"
-            "https://www.olx.ua/d/uk/obyavlenie/..."
+            "🔗 Надішліть посилання на оголошення\n\n"
+            "Підтримуються сайти:\n"
+            "• OLX\n"
+            "• Rieltor.ua\n"
         )
     elif text == "🚪 Вийти":
         logout_user(telegram_user_id)
@@ -216,7 +222,7 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє посилання на OLX"""
+    """Обробляє посилання на OLX, Rieltor.ua або LUN.ua та відправляє архів з фото"""
     telegram_user_id = update.effective_user.id
 
     # Перевірка авторизації
@@ -229,20 +235,32 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = update.message.text.strip()
 
-    # Перевіряємо чи це посилання на OLX
-    if not re.match(r'https?://(?:www\.)?olx\.ua/', url):
+    # Визначаємо тип сайту та завантажуємо фото
+    if re.match(r'https?://(?:www\.)?olx\.ua/', url):
+        site_name = "OLX"
+        await update.message.reply_text("🔍 Завантажую фотографії з OLX...")
+        photo_urls = download_olx_photos(url)
+    elif is_rieltor_url(url):
+        site_name = "Rieltor.ua"
+        await update.message.reply_text("🔍 Завантажую фотографії з Rieltor.ua...")
+        photo_urls = download_rieltor_photos(url)
+    elif is_lun_url(url):
+        site_name = "LUN.ua"
+        await update.message.reply_text("🔍 Завантажую фотографії з LUN.ua...")
+        photo_urls = download_lun_photos(url)
+    else:
         await update.message.reply_text(
-            "❌ Це не схоже на посилання OLX\n\n"
-            "Надішліть посилання формату:\n"
-            "https://www.olx.ua/d/uk/obyavlenie/..."
+            "❌ Посилання не розпізнано\n\n"
+            "Підтримуються сайти:\n"
+            "• OLX: https://www.olx.ua/d/uk/obyavlenie/...\n"
+            "• Rieltor.ua: https://rieltor.ua/flats-sale/view/...\n"
+            "• LUN.ua: https://lun.ua/realty/..."
         )
         return
 
-    await update.message.reply_text("🔍 Завантажую фотографії з OLX...")
-
     try:
         # Завантажуємо URL-и фотографій
-        photo_urls = download_olx_photos(url)
+        photo_urls = photo_urls  # Вже завантажені вище
 
         if not photo_urls:
             await update.message.reply_text(
@@ -251,7 +269,13 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        await update.message.reply_text(f"📸 Знайдено {len(photo_urls)} фото. Обробляю...")
+        # Відправляємо повідомлення про початок обробки
+        progress_message = await update.message.reply_text(
+            f"📸 Знайдено {len(photo_urls)} фото.\n⏳ Обробляю: 0/{len(photo_urls)}"
+        )
+
+        # Створюємо ZIP архів в пам'яті
+        zip_buffer = BytesIO()
 
         processed_count = 0
         import requests
@@ -261,38 +285,56 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
 
-        for i, photo_url in enumerate(photo_urls, 1):
-            try:
-                # Завантажуємо фото
-                response = requests.get(photo_url, headers=headers, timeout=10)
-                response.raise_for_status()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for i, photo_url in enumerate(photo_urls, 1):
+                try:
+                    # Завантажуємо фото
+                    response = requests.get(photo_url, headers=headers, timeout=10)
+                    response.raise_for_status()
 
-                # Відкриваємо зображення
-                image = Image.open(BytesIO(response.content))
+                    # Відкриваємо зображення
+                    image = Image.open(BytesIO(response.content))
 
-                # Обробляємо фото
-                processed_image = process_single_image(image)
+                    # Обробляємо фото
+                    processed_image = process_single_image(image)
 
-                if processed_image:
-                    # Зберігаємо результат
-                    output = BytesIO()
-                    processed_image.save(output, format='JPEG', quality=95)
-                    output.seek(0)
+                    if processed_image:
+                        # Зберігаємо в буфер
+                        img_buffer = BytesIO()
+                        processed_image.save(img_buffer, format='JPEG', quality=95)
+                        img_buffer.seek(0)
 
-                    # Відправляємо фото
-                    await update.message.reply_photo(
-                        photo=output,
-                        caption=f"✅ Фото {i}/{len(photo_urls)}"
-                    )
-                    processed_count += 1
+                        # Додаємо в архів
+                        filename = f"photo_{i:02d}.jpg"
+                        zip_file.writestr(filename, img_buffer.getvalue())
 
-            except Exception as e:
-                print(f"Помилка обробки фото {i}: {e}")
-                continue
+                        processed_count += 1
+
+                        # Оновлюємо повідомлення про прогрес
+                        try:
+                            await progress_message.edit_text(
+                                f"📸 Знайдено {len(photo_urls)} фото.\n⏳ Оброблено: {processed_count}/{len(photo_urls)}"
+                            )
+                        except:
+                            pass  # Ігноруємо помилки редагування (наприклад, якщо текст не змінився)
+
+                except Exception as e:
+                    print(f"Помилка обробки фото {i}: {e}")
+                    continue
 
         if processed_count > 0:
-            await update.message.reply_text(
-                f"🎉 Готово! Оброблено {processed_count} з {len(photo_urls)} фото"
+            # Повертаємось на початок буфера
+            zip_buffer.seek(0)
+
+            # Генеруємо ім'я файлу з датою та часом
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{site_name.lower().replace('.', '_')}_photos_{timestamp}.zip"
+
+            # Відправляємо архів
+            await update.message.reply_document(
+                document=zip_buffer,
+                filename=filename,
+                caption=f"🎉 Готово! Оброблено {processed_count} з {len(photo_urls)} фото"
             )
         else:
             await update.message.reply_text("❌ Не вдалося обробити жодного фото")
@@ -322,6 +364,7 @@ def main():
     print("📝 Система авторизації активна")
     print("🔐 Підключено до бази даних MySQL")
     print("💾 Сесії зберігаються в БД")
+    print("📦 Фото з OLX, Rieltor.ua та LUN.ua відправляються ZIP архівом")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

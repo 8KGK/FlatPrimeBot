@@ -84,7 +84,7 @@ def _add_watermark(image):
 
     # Розміщуємо водяний знак по центру
     # Розмір водяного знаку - 40% від ширини фото
-    wm_width = int(image.width * 0.4)
+    wm_width = int(image.width * 0.6)
     wm_ratio = wm_width / watermark.width
     wm_height = int(watermark.height * wm_ratio)
 
