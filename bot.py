@@ -31,6 +31,9 @@ from house_parser import parse_all_districts, create_houses_table
 # Telegram username адміністратора для оновлення бази будинків
 ADMIN_USERNAME = "r24npo9"
 
+# Час очікування між фото (в секундах)
+PHOTO_BATCH_TIMEOUT = 3
+
 # Райони Києва для inline клавіатури
 KYIV_DISTRICTS = [
     'Голосіївський', 'Дарницький', 'Деснянський', 'Дніпровський',
@@ -118,9 +121,10 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Обробка команд головного меню
     if text == "📸 Фото":
         await update.message.reply_text(
-            "📸 Надішліть фотографію, і я її обробляю:\n"
+            "📸 Надішліть фотографії, і я їх обробляю:\n"
             "• Змінію розмір до мінімум 600x600\n"
-            "• Додам водяний знак"
+            "• Додам водяний знак\n\n"
+            "💡 Якщо надішлете більше 2 фото - отримаєте ZIP архів"
         )
     elif text == "🔗 OLX":
         await update.message.reply_text(
@@ -202,8 +206,75 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         await start(update, context)
 
 
-async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def process_photo_batch(context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє пакет фото після закінчення таймауту"""
+    job_data = context.job.data
+    telegram_user_id = job_data['user_id']
+    chat_id = job_data['chat_id']
 
+    # Отримуємо фото з context.user_data
+    photos = context.application.bot_data.get(f'photos_{telegram_user_id}', [])
+
+    if not photos:
+        return
+
+    try:
+        photo_count = len(photos)
+
+        if photo_count <= 2:
+            # Відправляємо фото окремо
+            for i, photo_data in enumerate(photos, 1):
+                output = BytesIO()
+                photo_data['image'].save(output, format='JPEG', quality=95)
+                output.seek(0)
+
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=output,
+                    caption=f"✅ Фото {i}/{photo_count} оброблено!"
+                )
+        else:
+            # Створюємо ZIP архів
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"📦 Створюю архів з {photo_count} фото..."
+            )
+
+            zip_buffer = BytesIO()
+
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for i, photo_data in enumerate(photos, 1):
+                    img_buffer = BytesIO()
+                    photo_data['image'].save(img_buffer, format='JPEG', quality=95)
+                    img_buffer.seek(0)
+
+                    filename = f"photo_{i:02d}.jpg"
+                    zip_file.writestr(filename, img_buffer.getvalue())
+
+            zip_buffer.seek(0)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"photos_{timestamp}.zip"
+
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=zip_buffer,
+                filename=filename,
+                caption=f"✅ Готово! Оброблено {photo_count} фото"
+            )
+
+    except Exception as e:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"❌ Помилка при обробці фото: {str(e)}"
+        )
+    finally:
+        # Очищуємо дані про фото
+        if f'photos_{telegram_user_id}' in context.application.bot_data:
+            del context.application.bot_data[f'photos_{telegram_user_id}']
+
+
+async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_user_id = update.effective_user.id
 
     # Перевірка авторизації
@@ -215,31 +286,54 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-
+        # Завантажуємо фото
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
-
-
         photo_bytes = await file.download_as_bytearray()
+
         from PIL import Image
         image = Image.open(BytesIO(photo_bytes))
 
-
+        # Обробляємо фото
         processed_image = process_single_image(image)
 
-        if processed_image:
-
-            output = BytesIO()
-            processed_image.save(output, format='JPEG', quality=95)
-            output.seek(0)
-
-
-            await update.message.reply_photo(
-                photo=output,
-                caption="✅ Фото оброблено!"
-            )
-        else:
+        if not processed_image:
             await update.message.reply_text("❌ Помилка при обробці фото")
+            return
+
+        # Ініціалізуємо список фото для користувача, якщо його немає
+        if f'photos_{telegram_user_id}' not in context.application.bot_data:
+            context.application.bot_data[f'photos_{telegram_user_id}'] = []
+
+        # Додаємо оброблене фото до списку
+        context.application.bot_data[f'photos_{telegram_user_id}'].append({
+            'image': processed_image,
+            'timestamp': datetime.now()
+        })
+
+        photo_count = len(context.application.bot_data[f'photos_{telegram_user_id}'])
+
+        # Скасовуємо попередній таймер, якщо він є
+        current_jobs = context.job_queue.get_jobs_by_name(f'photo_batch_{telegram_user_id}')
+        for job in current_jobs:
+            job.schedule_removal()
+
+        # Створюємо новий таймер
+        context.job_queue.run_once(
+            process_photo_batch,
+            PHOTO_BATCH_TIMEOUT,
+            data={
+                'user_id': telegram_user_id,
+                'chat_id': update.effective_chat.id
+            },
+            name=f'photo_batch_{telegram_user_id}'
+        )
+
+        # Відправляємо підтвердження
+        await update.message.reply_text(
+            f"📸 Фото {photo_count} отримано\n"
+            f"⏳ Чекаю ще {PHOTO_BATCH_TIMEOUT} сек..."
+        )
 
     except Exception as e:
         await update.message.reply_text(f"❌ Помилка: {str(e)}")
@@ -704,11 +798,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_show_all_results(update, context)
 
 
-"""
-Оновити функцію main() - додати обробники (замінити існуючу):
-"""
-
-
 def main():
     """Запускає бота"""
     # Створюємо таблицю сесій якщо не існує
@@ -743,6 +832,7 @@ def main():
     print("📦 Фото з OLX, Rieltor.ua та LUN.ua відправляються ZIP архівом")
     print("📋 Парсинг параметрів квартир активний")
     print("🏠 База даних будинків Києва активна")
+    print("📸 Пакетна обробка фото активна (>3 фото = ZIP архів)")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
