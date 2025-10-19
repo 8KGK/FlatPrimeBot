@@ -1,6 +1,5 @@
 """
-Модуль для парсингу фотографій з Rieltor.ua
-Завантажує HTML сторінки та витягує URL-и зображень
+Модуль для парсингу фотографій та параметрів з Rieltor.ua
 """
 
 import re
@@ -12,12 +11,6 @@ from bs4 import BeautifulSoup
 def download_rieltor_photos(url):
     """
     Завантажує фотографії з оголошення Rieltor.ua
-
-    Args:
-        url (str): Посилання на оголошення Rieltor.ua
-
-    Returns:
-        list: Список URL-ів фотографій
     """
     try:
         headers = {
@@ -57,15 +50,116 @@ def download_rieltor_photos(url):
         return []
 
 
+def parse_rieltor_parameters(url):
+    """
+    Парсить параметри квартири з оголошення Rieltor.ua
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Referer': 'https://rieltor.ua/'
+        }
+
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        parameters = {}
+
+        # Шукаємо контейнер з деталями оголошення
+        details_container = soup.find('div', class_='offer-view-details')
+
+        if details_container:
+            # Шукаємо колонки з параметрами
+            columns = details_container.find_all('div', class_='offer-view-details-column')
+
+            for column in columns:
+                text = column.get_text(strip=True)
+
+                # Парсимо формат "Н кімнати"
+                rooms_match = re.search(r'(\d+)\s*кімнат', text, re.IGNORECASE)
+                if rooms_match:
+                    parameters['Кількість кімнат'] = rooms_match.group(1)
+
+                # Парсимо формат "Н/Н/Н м²" (загальна/житлова/кухня)
+                areas_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*м²', text)
+                if areas_match:
+                    parameters['Загальна площа'] = areas_match.group(1) + ' м²'
+                    parameters['Житлова площа'] = areas_match.group(2) + ' м²'
+                    parameters['Площа кухні'] = areas_match.group(3) + ' м²'
+
+                # Парсимо формат "поверх Н з Н"
+                floor_match = re.search(r'поверх\s+(\d+)\s+з\s+(\d+)', text, re.IGNORECASE)
+                if floor_match:
+                    parameters['Поверх'] = floor_match.group(1)
+                    parameters['Поверховість'] = floor_match.group(2)
+
+                # Тип будинку
+                if 'Тип будинку' in text or 'будинок' in text.lower():
+                    building_types = ['Цегляний', 'Панельний', 'Монолітний', 'Блочний']
+                    for building_type in building_types:
+                        if building_type.lower() in text.lower():
+                            parameters['Тип будинку'] = building_type
+                            break
+
+                # Тип стін
+                if 'Тип стін' in text or 'стін' in text.lower():
+                    wall_types = ['Цегляний', 'Панельний', 'Монолітний', 'Блочний']
+                    for wall_type in wall_types:
+                        if wall_type.lower() in text.lower():
+                            parameters['Тип стін'] = wall_type
+                            break
+
+                # Ремонт
+                if 'Ремонт' in text or 'ремонт' in text.lower():
+                    repair_types = ['Євроремонт', 'Косметичний', 'Без ремонту', 'Дизайнерський', 'Потребує ремонту']
+                    for repair_type in repair_types:
+                        if repair_type.lower() in text.lower():
+                            parameters['Ремонт'] = repair_type
+                            break
+
+                # Меблювання
+                if 'Меблі' in text or 'меблюван' in text.lower():
+                    if 'так' in text.lower() or 'є' in text.lower():
+                        parameters['Меблювання'] = 'Так'
+                    elif 'ні' in text.lower() or 'немає' in text.lower():
+                        parameters['Меблювання'] = 'Ні'
+
+        # Додатковий пошук у всій сторінці якщо не знайшли параметри
+        if not parameters:
+            all_text = soup.get_text()
+
+            # Кількість кімнат
+            rooms_match = re.search(r'(\d+)[-\s]*кімнат', all_text, re.IGNORECASE)
+            if rooms_match:
+                parameters['Кількість кімнат'] = rooms_match.group(1)
+
+            # Площі
+            areas_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*м²', all_text)
+            if areas_match:
+                parameters['Загальна площа'] = areas_match.group(1) + ' м²'
+                parameters['Житлова площа'] = areas_match.group(2) + ' м²'
+                parameters['Площа кухні'] = areas_match.group(3) + ' м²'
+
+            # Поверх
+            floor_match = re.search(r'поверх\s+(\d+)\s+з\s+(\d+)', all_text, re.IGNORECASE)
+            if floor_match:
+                parameters['Поверх'] = floor_match.group(1)
+                parameters['Поверховість'] = floor_match.group(2)
+
+        return parameters
+
+    except Exception as e:
+        print(f"Помилка парсингу параметрів Rieltor.ua: {e}")
+        return {}
+
+
 def _parse_json_data(soup):
     """
     Парсить JSON дані на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -99,12 +193,6 @@ def _parse_json_data(soup):
 def _parse_gallery(soup):
     """
     Парсить галерею зображень на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -134,12 +222,6 @@ def _parse_gallery(soup):
 def _parse_img_tags(soup):
     """
     Парсить IMG теги на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -164,12 +246,6 @@ def _parse_img_tags(soup):
 def _parse_data_attributes(soup):
     """
     Парсить data-* атрибути на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -188,12 +264,6 @@ def _parse_data_attributes(soup):
 def _maximize_image_size(url):
     """
     Змінює URL зображення для отримання максимального розміру
-
-    Args:
-        url (str): Оригінальний URL зображення
-
-    Returns:
-        str: URL з максимальним розміром
     """
     # Видаляємо параметри розміру
     url = re.sub(r'_\d+x\d+', '', url)
@@ -210,12 +280,6 @@ def _maximize_image_size(url):
 def _clean_and_deduplicate_urls(photo_urls):
     """
     Очищає та видаляє дублікати з URL-ів
-
-    Args:
-        photo_urls (list): Список URL-ів для очищення
-
-    Returns:
-        list: Очищений список унікальних URL-ів
     """
     clean_urls = []
     seen_urls = set()
@@ -252,11 +316,5 @@ def _clean_and_deduplicate_urls(photo_urls):
 def is_rieltor_url(url):
     """
     Перевіряє чи є URL посиланням на Rieltor.ua
-
-    Args:
-        url (str): URL для перевірки
-
-    Returns:
-        bool: True якщо це Rieltor.ua, False якщо ні
     """
     return bool(re.match(r'https?://(?:www\.)?rieltor\.ua/', url))

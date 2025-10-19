@@ -1,6 +1,5 @@
 """
-Головний файл Telegram бота з авторизацією
-Обробляє команди та повідомлення користувачів
+Головний файл Telegram бота
 """
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -12,8 +11,8 @@ import os
 from datetime import datetime
 
 from image_processor import process_single_image
-from olx_parser import download_olx_photos
-from rieltor_parser import download_rieltor_photos, is_rieltor_url
+from olx_parser import download_olx_photos, parse_olx_parameters
+from rieltor_parser import download_rieltor_photos, is_rieltor_url, parse_rieltor_parameters
 from lun_parser import download_lun_photos, is_lun_url
 from config import BOT_TOKEN
 from database import get_all_users, verify_password, get_user_name, create_sessions_table
@@ -25,7 +24,7 @@ from auth import (
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Відправляє список користувачів для вибору"""
+
     telegram_user_id = update.effective_user.id
 
     # Якщо вже авторизований - показуємо меню
@@ -107,6 +106,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Підтримуються сайти:\n"
             "• OLX\n"
             "• Rieltor.ua\n"
+            "• LUN.ua"
         )
     elif text == "🚪 Вийти":
         logout_user(telegram_user_id)
@@ -159,16 +159,16 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     """Обробляє введення паролю"""
     telegram_user_id = update.effective_user.id
 
-    # Перевіряємо пароль
+
     if verify_password(user_id, password):
-        # Пароль правильний - авторизуємо
+
         user_name = get_user_name(user_id)
         authorize_user(telegram_user_id, user_id, user_name)
 
         await update.message.reply_text("✅ Авторизація успішна!")
         await show_main_menu(update, context)
     else:
-        # Пароль неправильний
+
         clear_pending_auth(telegram_user_id)
         await update.message.reply_text(
             "❌ Неправильний пароль!\n\n"
@@ -179,7 +179,7 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
 
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє отримані фотографії"""
+
     telegram_user_id = update.effective_user.id
 
     # Перевірка авторизації
@@ -191,25 +191,25 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # Отримуємо файл найвищої якості
+
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
 
-        # Завантажуємо фото
+
         photo_bytes = await file.download_as_bytearray()
         from PIL import Image
         image = Image.open(BytesIO(photo_bytes))
 
-        # Обробляємо фото
+
         processed_image = process_single_image(image)
 
         if processed_image:
-            # Зберігаємо результат
+
             output = BytesIO()
             processed_image.save(output, format='JPEG', quality=95)
             output.seek(0)
 
-            # Відправляємо оброблене фото
+
             await update.message.reply_photo(
                 photo=output,
                 caption="✅ Фото оброблено!"
@@ -219,6 +219,50 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"❌ Помилка: {str(e)}")
+
+
+def format_parameters(parameters, site_name):
+    """
+    Форматує параметри для відображення
+    """
+    if not parameters:
+        return ""
+
+    lines = [f"\n📋 **Інформація про квартиру ({site_name}):**\n"]
+
+
+    param_order = [
+        'Кількість кімнат',
+        'Загальна площа',
+        'Житлова площа',
+        'Площа кухні',
+        'Поверх',
+        'Поверховість',
+        'Тип будинку',
+        'Тип стін',
+        'Ремонт',
+        'Меблювання'
+    ]
+
+    for param_name in param_order:
+        if param_name in parameters:
+
+            emoji = {
+                'Кількість кімнат': '🚪',
+                'Загальна площа': '📐',
+                'Житлова площа': '🏠',
+                'Площа кухні': '🍳',
+                'Поверх': '🔼',
+                'Поверховість': '🏢',
+                'Тип будинку': '🏗',
+                'Тип стін': '🧱',
+                'Ремонт': '🔨',
+                'Меблювання': '🛋'
+            }.get(param_name, '▪️')
+
+            lines.append(f"{emoji} **{param_name}:** {parameters[param_name]}")
+
+    return '\n'.join(lines)
 
 
 async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -235,19 +279,24 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = update.message.text.strip()
 
-    # Визначаємо тип сайту та завантажуємо фото
+
+    parameters = {}
+
     if re.match(r'https?://(?:www\.)?olx\.ua/', url):
         site_name = "OLX"
-        await update.message.reply_text("🔍 Завантажую фотографії з OLX...")
+        await update.message.reply_text("🔍 Завантажую інформацію з OLX...")
         photo_urls = download_olx_photos(url)
+        parameters = parse_olx_parameters(url)
     elif is_rieltor_url(url):
         site_name = "Rieltor.ua"
-        await update.message.reply_text("🔍 Завантажую фотографії з Rieltor.ua...")
+        await update.message.reply_text("🔍 Завантажую інформацію з Rieltor.ua...")
         photo_urls = download_rieltor_photos(url)
+        parameters = parse_rieltor_parameters(url)
     elif is_lun_url(url):
         site_name = "LUN.ua"
         await update.message.reply_text("🔍 Завантажую фотографії з LUN.ua...")
         photo_urls = download_lun_photos(url)
+
     else:
         await update.message.reply_text(
             "❌ Посилання не розпізнано\n\n"
@@ -259,9 +308,6 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # Завантажуємо URL-и фотографій
-        photo_urls = photo_urls  # Вже завантажені вище
-
         if not photo_urls:
             await update.message.reply_text(
                 "❌ Не вдалося знайти фотографії в оголошенні.\n"
@@ -269,12 +315,17 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Відправляємо повідомлення про початок обробки
+
+        if parameters:
+            params_text = format_parameters(parameters, site_name)
+            await update.message.reply_text(params_text, parse_mode='Markdown')
+
+
         progress_message = await update.message.reply_text(
             f"📸 Знайдено {len(photo_urls)} фото.\n⏳ Обробляю: 0/{len(photo_urls)}"
         )
 
-        # Створюємо ZIP архів в пам'яті
+
         zip_buffer = BytesIO()
 
         processed_count = 0
@@ -310,13 +361,14 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                         processed_count += 1
 
-                        # Оновлюємо повідомлення про прогрес
-                        try:
-                            await progress_message.edit_text(
-                                f"📸 Знайдено {len(photo_urls)} фото.\n⏳ Оброблено: {processed_count}/{len(photo_urls)}"
-                            )
-                        except:
-                            pass  # Ігноруємо помилки редагування (наприклад, якщо текст не змінився)
+                        # Оновлюємо повідомлення про прогрес кожні 3 фото
+                        if processed_count % 3 == 0 or processed_count == len(photo_urls):
+                            try:
+                                await progress_message.edit_text(
+                                    f"📸 Знайдено {len(photo_urls)} фото.\n⏳ Оброблено: {processed_count}/{len(photo_urls)}"
+                                )
+                            except:
+                                pass
 
                 except Exception as e:
                     print(f"Помилка обробки фото {i}: {e}")
@@ -330,11 +382,14 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{site_name.lower().replace('.', '_')}_photos_{timestamp}.zip"
 
+            # Відправляємо архів без повторення параметрів
+            caption = f"🎉 Готово! Оброблено {processed_count} з {len(photo_urls)} фото"
+
             # Відправляємо архів
             await update.message.reply_document(
                 document=zip_buffer,
                 filename=filename,
-                caption=f"🎉 Готово! Оброблено {processed_count} з {len(photo_urls)} фото"
+                caption=caption
             )
         else:
             await update.message.reply_text("❌ Не вдалося обробити жодного фото")
@@ -365,6 +420,7 @@ def main():
     print("🔐 Підключено до бази даних MySQL")
     print("💾 Сесії зберігаються в БД")
     print("📦 Фото з OLX, Rieltor.ua та LUN.ua відправляються ZIP архівом")
+    print("📋 Парсинг параметрів квартир активний")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

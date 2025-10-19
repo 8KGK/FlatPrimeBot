@@ -1,6 +1,5 @@
 """
 Модуль для парсингу фотографій з LUN.ua
-Завантажує HTML сторінки та витягує URL-и зображень
 """
 
 import re
@@ -12,12 +11,6 @@ from bs4 import BeautifulSoup
 def download_lun_photos(url):
     """
     Завантажує фотографії з оголошення LUN.ua
-
-    Args:
-        url (str): Посилання на оголошення LUN.ua
-
-    Returns:
-        list: Список URL-ів фотографій
     """
     try:
         headers = {
@@ -63,12 +56,6 @@ def download_lun_photos(url):
 def _parse_json_data(soup):
     """
     Парсить JSON дані на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -104,10 +91,6 @@ def _parse_json_data(soup):
 def _extract_images_from_json(data, photo_urls):
     """
     Рекурсивно витягує URL-и зображень з JSON структури
-
-    Args:
-        data: JSON дані (dict, list, або інше)
-        photo_urls (list): Список для додавання знайдених URL-ів
     """
     if isinstance(data, dict):
         for key, value in data.items():
@@ -127,12 +110,6 @@ def _extract_images_from_json(data, photo_urls):
 def _parse_js_variables(soup):
     """
     Парсить JavaScript змінні на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -151,12 +128,6 @@ def _parse_js_variables(soup):
 def _parse_gallery(soup):
     """
     Парсить галерею зображень на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -194,12 +165,6 @@ def _parse_gallery(soup):
 def _parse_img_tags(soup):
     """
     Парсить IMG теги на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -232,12 +197,6 @@ def _parse_img_tags(soup):
 def _parse_data_attributes(soup):
     """
     Парсить data-* атрибути на сторінці
-
-    Args:
-        soup: BeautifulSoup об'єкт
-
-    Returns:
-        list: Список знайдених URL-ів
     """
     photo_urls = []
 
@@ -259,12 +218,6 @@ def _parse_data_attributes(soup):
 def _maximize_image_size(url):
     """
     Змінює URL зображення для отримання максимального розміру
-
-    Args:
-        url (str): Оригінальний URL зображення
-
-    Returns:
-        str: URL з максимальним розміром
     """
     # Видаляємо параметри розміру
     url = re.sub(r'_\d+x\d+', '', url)
@@ -289,12 +242,6 @@ def _maximize_image_size(url):
 def _clean_and_deduplicate_urls(photo_urls):
     """
     Очищає та видаляє дублікати з URL-ів
-
-    Args:
-        photo_urls (list): Список URL-ів для очищення
-
-    Returns:
-        list: Очищений список унікальних URL-ів
     """
     clean_urls = []
     seen_urls = set()
@@ -335,11 +282,5 @@ def _clean_and_deduplicate_urls(photo_urls):
 def is_lun_url(url):
     """
     Перевіряє чи є URL посиланням на LUN.ua
-
-    Args:
-        url (str): URL для перевірки
-
-    Returns:
-        bool: True якщо це LUN.ua, False якщо ні
     """
     return bool(re.match(r'https?://(?:www\.)?lun\.ua/', url))

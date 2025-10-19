@@ -10,9 +10,6 @@ from typing import List, Optional, Tuple
 def get_connection():
     """
     Створює з'єднання з базою даних MySQL
-
-    Returns:
-        mysql.connector.connection: З'єднання з БД
     """
     return mysql.connector.connect(
         host="localhost",
@@ -26,9 +23,6 @@ def get_connection():
 def get_all_users() -> List[Tuple[int, str]]:
     """
     Отримує список всіх користувачів з бази даних
-
-    Returns:
-        List[Tuple[int, str]]: Список кортежів (ID, Name)
     """
     try:
         conn = get_connection()
@@ -49,13 +43,6 @@ def get_all_users() -> List[Tuple[int, str]]:
 def verify_password(user_id: int, password: str) -> bool:
     """
     Перевіряє пароль користувача
-
-    Args:
-        user_id (int): ID користувача
-        password (str): Пароль для перевірки
-
-    Returns:
-        bool: True якщо пароль правильний, False якщо ні
     """
     try:
         conn = get_connection()
@@ -78,12 +65,6 @@ def verify_password(user_id: int, password: str) -> bool:
 def get_user_name(user_id: int) -> Optional[str]:
     """
     Отримує ім'я користувача за ID
-
-    Args:
-        user_id (int): ID користувача
-
-    Returns:
-        Optional[str]: Ім'я користувача або None
     """
     try:
         conn = get_connection()
@@ -153,11 +134,6 @@ def create_sessions_table():
 def save_session(telegram_user_id: int, user_id: int, user_name: str):
     """
     Зберігає сесію користувача в БД
-
-    Args:
-        telegram_user_id (int): Telegram ID користувача
-        user_id (int): ID користувача в БД
-        user_name (str): Ім'я користувача
     """
     try:
         conn = get_connection()
@@ -178,12 +154,6 @@ def save_session(telegram_user_id: int, user_id: int, user_name: str):
 def load_session(telegram_user_id: int) -> Optional[Tuple[int, str]]:
     """
     Завантажує сесію користувача з БД
-
-    Args:
-        telegram_user_id (int): Telegram ID користувача
-
-    Returns:
-        Optional[Tuple[int, str]]: (user_id, user_name) або None
     """
     try:
         conn = get_connection()
@@ -208,9 +178,6 @@ def load_session(telegram_user_id: int) -> Optional[Tuple[int, str]]:
 def delete_session(telegram_user_id: int):
     """
     Видаляє сесію користувача з БД
-
-    Args:
-        telegram_user_id (int): Telegram ID користувача
     """
     try:
         conn = get_connection()
@@ -229,9 +196,6 @@ def delete_session(telegram_user_id: int):
 def load_all_sessions() -> dict:
     """
     Завантажує всі активні сесії з БД
-
-    Returns:
-        dict: Словник {telegram_user_id: {"user_id": ..., "name": ...}}
     """
     try:
         conn = get_connection()

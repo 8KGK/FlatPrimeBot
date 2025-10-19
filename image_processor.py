@@ -1,6 +1,5 @@
 """
 Модуль для обробки зображень
-Змінює розмір та додає водяний знак
 """
 
 import os
@@ -11,12 +10,6 @@ from config import WATERMARK_PATH
 def process_single_image(image):
     """
     Обробляє одне зображення: змінює розмір та додає водяний знак
-
-    Args:
-        image: PIL Image об'єкт
-
-    Returns:
-        PIL Image: Оброблене зображення або None у разі помилки
     """
     try:
         # Конвертуємо в RGB якщо потрібно
@@ -39,12 +32,6 @@ def process_single_image(image):
 def _resize_if_needed(image):
     """
     Змінює розмір зображення до мінімум 600x600 пікселів
-
-    Args:
-        image: PIL Image об'єкт
-
-    Returns:
-        PIL Image: Зображення з новим розміром (якщо потрібно)
     """
     width, height = image.size
 
@@ -65,12 +52,6 @@ def _resize_if_needed(image):
 def _add_watermark(image):
     """
     Додає водяний знак на зображення
-
-    Args:
-        image: PIL Image об'єкт
-
-    Returns:
-        PIL Image: Зображення з водяним знаком
     """
     if not os.path.exists(WATERMARK_PATH):
         print(f"⚠️ Водяний знак не знайдено за шляхом: {WATERMARK_PATH}")
@@ -106,9 +87,6 @@ def _add_watermark(image):
 def get_watermark_size_percent():
     """
     Повертає поточний розмір водяного знаку у відсотках
-
-    Returns:
-        float: Розмір у відсотках (0.4 = 40%)
     """
     return 0.4
 
@@ -116,9 +94,6 @@ def get_watermark_size_percent():
 def set_watermark_size_percent(percent):
     """
     Встановлює розмір водяного знаку у відсотках
-
-    Args:
-        percent (float): Розмір у відсотках (наприклад 0.3 для 30%)
     """
     # Ця функція для майбутнього розширення функціоналу
     pass
