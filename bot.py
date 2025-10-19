@@ -21,7 +21,22 @@ from auth import (
     get_authorized_user, set_pending_auth,
     get_pending_auth, clear_pending_auth, init_sessions
 )
+from house_search import (
+    search_house,
+    format_house_info,
+    get_total_houses_count
+)
+from house_parser import parse_all_districts, create_houses_table
 
+# Telegram username адміністратора для оновлення бази будинків
+ADMIN_USERNAME = "r24npo9"
+
+# Райони Києва для inline клавіатури
+KYIV_DISTRICTS = [
+    'Голосіївський', 'Дарницький', 'Деснянський', 'Дніпровський',
+    'Оболонський', 'Печерський', 'Подільський', 'Святошинський',
+    'Солом\'янський', 'Шевченківський'
+]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -62,6 +77,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Створюємо клавіатуру з функціями
     keyboard = [
         [KeyboardButton("📸 Фото"), KeyboardButton("🔗 OLX")],
+        [KeyboardButton("🏠 Інфо про будинок")],
         [KeyboardButton("🚪 Вийти")]
     ]
 
@@ -72,6 +88,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Оберіть дію:\n\n"
         "📸 **Фото** - надішліть фото для обробки\n"
         "🔗 **OLX** - надішліть посилання на оголошення\n"
+        "🏠 **Інфо про будинок** - інформація про будинки Києва\n"
         "🚪 **Вийти** - вийти з аккаунту",
         reply_markup=reply_markup
     )
@@ -86,6 +103,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     pending_user_id = get_pending_auth(telegram_user_id)
     if pending_user_id:
         await handle_password(update, context, pending_user_id, text)
+        return
+
+    # Перевірка чи користувач шукає будинок
+    if context.user_data.get('searching_house'):
+        await handle_house_search(update, context, text)
         return
 
     # Перевірка авторизації
@@ -108,6 +130,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "• Rieltor.ua\n"
             "• LUN.ua"
         )
+    elif text == "🏠 Інфо про будинок":
+        await show_house_info_menu(update, context)
     elif text == "🚪 Вийти":
         logout_user(telegram_user_id)
         await update.message.reply_text(
@@ -398,10 +422,300 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Помилка: {str(e)}")
 
 
+async def show_house_info_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показує меню для пошуку інформації про будинки"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    # Отримуємо кількість будинків в базі
+    total_count = get_total_houses_count()
+
+    if total_count == 0:
+        await update.message.reply_text(
+            "❌ База даних будинків порожня.\n"
+            "Адміністратор має оновити базу командою /update_houses"
+        )
+        return
+
+    # Створюємо inline клавіатуру з районами (по 2 в ряд)
+    keyboard = []
+    for i in range(0, len(KYIV_DISTRICTS), 2):
+        row = []
+        for district in KYIV_DISTRICTS[i:i + 2]:
+            row.append(InlineKeyboardButton(district, callback_data=f"district_{district}"))
+        keyboard.append(row)
+
+    # Додаємо кнопку прямого пошуку
+    keyboard.append([InlineKeyboardButton("🔍 Пошук за адресою", callback_data="direct_search")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        f"🏠 **База будинків Києва**\n\n"
+        f"📊 Всього будинків: **{total_count}**\n\n"
+        f"Оберіть район або введіть адресу:",
+        reply_markup=reply_markup
+    )
+
+
+async def handle_district_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє вибір району"""
+    query = update.callback_query
+    await query.answer()
+
+    district = query.data.replace("district_", "")
+
+    # Зберігаємо вибраний район
+    context.user_data['selected_district'] = district
+    context.user_data['searching_house'] = True
+
+    await query.edit_message_text(
+        f"📍 Район: **{district}**\n\n"
+        f"Введіть адресу будинку:\n\n"
+        f"Приклади:\n"
+        f"• Хрещатик 15\n"
+        f"• вул. Велика Васильківська, 1\n"
+        f"• Червоноармійська 112",
+        parse_mode='Markdown'
+    )
+
+
+async def handle_direct_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє прямий пошук за адресою"""
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['selected_district'] = None
+    context.user_data['searching_house'] = True
+
+    await query.edit_message_text(
+        "🔍 **Пошук за адресою**\n\n"
+        "Введіть адресу будинку:\n\n"
+        "Приклади:\n"
+        "• Хрещатик 15\n"
+        "• вул. Велика Васильківська, 1\n"
+        "• Червоноармійська 112",
+        parse_mode='Markdown'
+    )
+
+
+async def handle_house_search(update: Update, context: ContextTypes.DEFAULT_TYPE, address: str):
+    """Обробляє пошук будинку за адресою"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    # Очищаємо стан пошуку
+    context.user_data['searching_house'] = False
+
+    await update.message.reply_text("🔍 Шукаю...")
+
+    # Шукаємо будинок
+    results = search_house(address)
+
+    if not results:
+        keyboard = [[InlineKeyboardButton("🔄 Спробувати ще раз", callback_data="direct_search")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"❌ Не знайдено будинків за адресою:\n**{address}**\n\n"
+            f"Спробуйте інший формат:\n"
+            f"• Хрещатик 15\n"
+            f"• Велика Васильківська 1",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        return
+
+    # Показуємо перший результат
+    house_info = format_house_info(results[0])
+
+    # Якщо знайдено більше 1 будинку - додаємо кнопку "Показати всі"
+    if len(results) > 1:
+        # Зберігаємо результати для показу всіх
+        context.user_data['search_results'] = results
+
+        keyboard = [
+            [InlineKeyboardButton(f"📋 Показати всі ({len(results)})", callback_data="show_all_results")],
+            [InlineKeyboardButton("🔍 Новий пошук", callback_data="direct_search")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"{house_info}\n\n"
+            f"ℹ️ Знайдено ще {len(results) - 1} будинків за цією адресою",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    else:
+        keyboard = [[InlineKeyboardButton("🔍 Новий пошук", callback_data="direct_search")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            house_info,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+
+async def handle_show_all_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показує всі знайдені результати"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    query = update.callback_query
+    await query.answer()
+
+    results = context.user_data.get('search_results', [])
+
+    if not results:
+        await query.edit_message_text("❌ Результати пошуку не знайдено")
+        return
+
+    # Формуємо повідомлення з усіма результатами
+    messages = []
+    current_message = f"📋 **Знайдено будинків: {len(results)}**\n\n"
+
+    for i, house in enumerate(results, 1):
+        house_text = f"**{i}. {house['address']}, {house['house_number']}**\n"
+        house_text += f"   📍 {house['region']}\n"
+
+        if house.get('project'):
+            house_text += f"   🏗 {house['project']}"
+        if house.get('build_year'):
+            house_text += f" ({house['build_year']})"
+        house_text += "\n\n"
+
+        # Перевіряємо чи не перевищуємо ліміт символів
+        if len(current_message + house_text) > 4000:
+            messages.append(current_message)
+            current_message = house_text
+        else:
+            current_message += house_text
+
+    if current_message:
+        messages.append(current_message)
+
+    # Відправляємо перше повідомлення (замінює попереднє)
+    keyboard = [[InlineKeyboardButton("🔍 Новий пошук", callback_data="direct_search")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        messages[0],
+        parse_mode='Markdown',
+        reply_markup=reply_markup if len(messages) == 1 else None
+    )
+
+    # Якщо є ще повідомлення - відправляємо їх окремо
+    for message in messages[1:]:
+        await query.message.reply_text(
+            message,
+            parse_mode='Markdown',
+            reply_markup=reply_markup if message == messages[-1] else None
+        )
+
+
+async def update_houses_database(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Оновлює базу даних будинків (тільки для адміністратора)
+    """
+    telegram_user_id = update.effective_user.id
+    username = update.effective_user.username
+
+    # Перевірка прав адміністратора
+    if username != ADMIN_USERNAME:
+        await update.message.reply_text(
+            "❌ У вас немає прав для виконання цієї команди"
+        )
+        return
+
+    progress_msg = await update.message.reply_text(
+        "🚀 Починаю оновлення бази даних будинків...\n"
+        "⏳ Це може зайняти 5-10 хвилин"
+    )
+
+    # Створюємо таблицю якщо не існує
+    create_houses_table()
+
+    # Словник для передачі прогресу між потоками
+    progress_data = {
+        'district': '',
+        'page': 0,
+        'total': 0,
+        'found': 0
+    }
+
+    # Запускаємо парсинг в окремому потоці
+    import asyncio
+    import threading
+
+    result = {'total': 0, 'error': None}
+
+    def run_parser():
+        try:
+            result['total'] = parse_all_districts(progress_data)
+        except Exception as e:
+            result['error'] = str(e)
+
+    # Запускаємо парсинг в окремому потоці
+    parser_thread = threading.Thread(target=run_parser)
+    parser_thread.start()
+
+    # Оновлюємо прогрес кожні 3 секунди
+    last_update = ""
+    while parser_thread.is_alive():
+        current_update = (
+            f"📍 **{progress_data['district']}**\n"
+            f"📄 Сторінка: {progress_data['page']}/{progress_data['total']}\n"
+            f"🏠 Знайдено на сторінці: {progress_data['found']}"
+        )
+
+        # Оновлюємо тільки якщо є зміни
+        if current_update != last_update and progress_data['district']:
+            try:
+                await progress_msg.edit_text(current_update, parse_mode='Markdown')
+                last_update = current_update
+            except:
+                pass
+
+        await asyncio.sleep(3)
+
+    # Чекаємо завершення потоку
+    parser_thread.join()
+
+    # Перевіряємо результат
+    if result['error']:
+        await update.message.reply_text(
+            f"❌ Помилка при оновленні бази:\n{result['error']}"
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ **Оновлення завершено!**\n\n"
+            f"📊 Всього додано будинків: **{result['total']}**",
+            parse_mode='Markdown'
+        )
+
+
+async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє callback запити від inline кнопок"""
+    query = update.callback_query
+
+    if query.data.startswith("district_"):
+        await handle_district_selection(update, context)
+    elif query.data == "direct_search":
+        await handle_direct_search(update, context)
+    elif query.data == "show_all_results":
+        await handle_show_all_results(update, context)
+
+
+"""
+Оновити функцію main() - додати обробники (замінити існуючу):
+"""
+
+
 def main():
     """Запускає бота"""
     # Створюємо таблицю сесій якщо не існує
     create_sessions_table()
+
+    # Створюємо таблицю будинків якщо не існує
+    create_houses_table()
 
     # Завантажуємо активні сесії з БД
     init_sessions()
@@ -409,10 +723,17 @@ def main():
     # Створюємо додаток
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Додаємо обробники
+    # Додаємо обробники команд
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("update_houses", update_houses_database))
+
+    # Додаємо обробники повідомлень
     application.add_handler(MessageHandler(filters.PHOTO, process_photo))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+
+    # Додаємо обробник callback запитів
+    from telegram.ext import CallbackQueryHandler
+    application.add_handler(CallbackQueryHandler(callback_query_handler))
 
     # Запускаємо бота
     print("🤖 Бот запущено!")
@@ -421,6 +742,7 @@ def main():
     print("💾 Сесії зберігаються в БД")
     print("📦 Фото з OLX, Rieltor.ua та LUN.ua відправляються ZIP архівом")
     print("📋 Парсинг параметрів квартир активний")
+    print("🏠 База даних будинків Києва активна")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
