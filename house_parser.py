@@ -5,6 +5,7 @@
 import requests
 from bs4 import BeautifulSoup
 import re
+import time
 from database import get_connection
 
 
@@ -48,6 +49,7 @@ def create_houses_table():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
 
+        conn.commit()
         cursor.close()
         conn.close()
 
@@ -56,6 +58,28 @@ def create_houses_table():
     except Exception as e:
         print(f"❌ Помилка створення таблиці houses: {e}")
         return False
+
+
+def clean_address(address):
+    """
+    Очищає адресу від небажаних символів
+
+    Args:
+        address: Рядок з адресою
+
+    Returns:
+        Очищена адреса
+    """
+    if not address:
+        return address
+
+    # Видаляємо знак номера №
+    address = address.replace('№', '')
+
+    # Видаляємо зайві пробіли
+    address = ' '.join(address.split())
+
+    return address.strip()
 
 
 def extract_houses_from_page(html_content, region_name):
@@ -98,8 +122,8 @@ def extract_houses_from_page(html_content, region_name):
                 if len(parts) != 2:
                     continue
 
-                street = parts[0]  # "Ломоносова вулиця"
-                house_num = parts[1]  # "4"
+                street = clean_address(parts[0])  # Очищаємо адресу
+                house_num = clean_address(parts[1])  # Очищаємо номер
 
                 # Знаходимо таблицю з характеристиками
                 table = block.find('table', class_='table-striped')
@@ -194,7 +218,7 @@ def get_total_pages(url):
         return 1
 
 
-def parse_district(district_name, base_url, progress_data=None):
+def parse_district(district_name, base_url, progress_data=None, is_first_district=False):
     """
     Парсить всі сторінки одного району
 
@@ -202,6 +226,7 @@ def parse_district(district_name, base_url, progress_data=None):
         district_name: Назва району
         base_url: Базовий URL району
         progress_data: Словник для збереження прогресу {'district': '', 'page': 0, 'total': 0, 'found': 0}
+        is_first_district: Чи це перший район (для очищення таблиці)
     """
     print(f"\n🔍 Парсинг району: {district_name}")
 
@@ -210,11 +235,17 @@ def parse_district(district_name, base_url, progress_data=None):
     }
 
     all_houses = []
+    buffer_houses = []  # Буфер для накопичення 50 будинків
+    total_saved = 0
 
     try:
         # Отримуємо загальну кількість сторінок
         total_pages = get_total_pages(base_url)
         print(f"📄 Всього сторінок: {total_pages}")
+
+        # Очищуємо таблицю тільки для першого району
+        if is_first_district:
+            clear_table_only()
 
         # Парсимо кожну сторінку
         for page in range(1, total_pages + 1):
@@ -231,6 +262,7 @@ def parse_district(district_name, base_url, progress_data=None):
 
                 # Витягуємо будинки
                 houses = extract_houses_from_page(response.text, district_name)
+                buffer_houses.extend(houses)
                 all_houses.extend(houses)
 
                 # Оновлюємо прогрес
@@ -242,11 +274,36 @@ def parse_district(district_name, base_url, progress_data=None):
                 else:
                     print(f"  Сторінка {page}/{total_pages}: знайдено {len(houses)} будинків")
 
+                # Якщо накопичилось 50+ будинків - зберігаємо
+                if len(buffer_houses) >= 50:
+                    print(f"  💾 Зберігаю {len(buffer_houses)} будинків в БД...")
+                    if save_houses_batch(buffer_houses):
+                        total_saved += len(buffer_houses)
+                        print(f"  ✅ Збережено. Всього в районі: {total_saved}")
+                        buffer_houses = []  # Очищаємо буфер
+
+                        # Чекаємо 1 секунду
+                        time.sleep(1)
+                    else:
+                        print(f"  ❌ Помилка збереження!")
+
             except Exception as e:
                 print(f"  ❌ Помилка на сторінці {page}: {e}")
                 continue
 
-        print(f"✅ {district_name}: знайдено {len(all_houses)} будинків")
+        # Зберігаємо залишки якщо є
+        if buffer_houses:
+            print(f"  💾 Зберігаю останні {len(buffer_houses)} будинків...")
+            if save_houses_batch(buffer_houses):
+                total_saved += len(buffer_houses)
+                print(f"  ✅ Збережено")
+
+        print(f"✅ {district_name}: спарсено {len(all_houses)} будинків, збережено {total_saved}")
+
+        # Перевіряємо загальну кількість в БД
+        total_in_db = get_total_houses_count_direct()
+        print(f"📊 Всього в БД зараз: {total_in_db} будинків")
+
         return all_houses
 
     except Exception as e:
@@ -254,18 +311,45 @@ def parse_district(district_name, base_url, progress_data=None):
         return all_houses
 
 
-def save_houses_to_db(houses):
+def clear_table_only():
     """
-    Зберігає будинки в базу даних
+    Очищає таблицю houses (викликається один раз на початку)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Очищуємо таблицю перед оновленням
-        cursor.execute("TRUNCATE TABLE houses")
+        # Встановлюємо ліміти
+        cursor.execute("SET SESSION max_allowed_packet=67108864")
 
-        # Вставляємо дані пакетами
+        print("🗑️ Очищення таблиці houses...")
+        cursor.execute("TRUNCATE TABLE houses")
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        print("✅ Таблиця очищена")
+        return True
+    except Exception as e:
+        print(f"❌ Помилка очищення таблиці: {e}")
+        return False
+
+
+def save_houses_batch(houses):
+    """
+    Зберігає один батч будинків в БД (до 50 штук)
+
+    Args:
+        houses: Список будинків для збереження
+    """
+    if not houses:
+        return True
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
         insert_query = """
             INSERT INTO houses 
             (region, address, house_number, project, build_year, material, floors, ceiling_height)
@@ -292,12 +376,29 @@ def save_houses_to_db(houses):
         cursor.close()
         conn.close()
 
-        print(f"\n✅ Збережено {len(houses)} будинків в базу даних")
         return True
 
     except Exception as e:
-        print(f"❌ Помилка збереження в БД: {e}")
+        print(f"❌ Помилка збереження батчу: {e}")
+        import traceback
+        traceback.print_exc()
         return False
+
+
+def get_total_houses_count_direct():
+    """
+    Перевіряє скільки будинків реально в БД
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM houses")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        return count
+    except:
+        return 0
 
 
 def parse_all_districts(progress_callback=None):
@@ -307,18 +408,20 @@ def parse_all_districts(progress_callback=None):
     print("🚀 Початок парсингу всіх районів Києва\n")
 
     all_houses = []
+    is_first = True
 
     for district_name, base_url in DISTRICTS.items():
-        houses = parse_district(district_name, base_url, progress_callback)
+        # Парсимо район (збереження відбувається всередині)
+        houses = parse_district(district_name, base_url, progress_callback, is_first_district=is_first)
+        is_first = False  # Тільки перший район очищає таблицю
         all_houses.extend(houses)
 
-    print(f"\n📊 Всього знайдено будинків: {len(all_houses)}")
+    total_in_db = get_total_houses_count_direct()
+    print(f"\n📊 Парсинг завершено!")
+    print(f"📊 Спарсено всього: {len(all_houses)} будинків")
+    print(f"📊 Збережено в БД: {total_in_db} будинків")
 
-    # Зберігаємо в базу даних
-    if all_houses:
-        save_houses_to_db(all_houses)
-
-    return len(all_houses)
+    return total_in_db
 
 
 if __name__ == '__main__':
