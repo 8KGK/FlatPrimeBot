@@ -208,15 +208,6 @@ def get_houses_count_by_region() -> Dict[str, int]:
 
 
 def parse_address_input(text: str) -> tuple:
-    """
-    Парсить введену користувачем адресу
-
-    Args:
-        text: Текст адреси (наприклад: "Хрещатик 15" або "вул. Хрещатик, 15")
-
-    Returns:
-        (вулиця, номер_будинку) або (вулиця, None)
-    """
     # Видаляємо зайві пробіли
     text = ' '.join(text.split())
 
@@ -244,15 +235,7 @@ def parse_address_input(text: str) -> tuple:
 
 
 def search_house(text: str):
-    """
-    Універсальна функція пошуку будинку
 
-    Args:
-        text: Текст введений користувачем
-
-    Returns:
-        Список знайдених будинків або None
-    """
     street, house_number = parse_address_input(text)
 
     if not street:

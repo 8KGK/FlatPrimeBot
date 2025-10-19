@@ -86,10 +86,10 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Вітаю, {user_data['name']}!\n\n"
         "Оберіть дію:\n\n"
-        "📸 **Фото** - надішліть фото для обробки\n"
-        "🔗 **OLX** - надішліть посилання на оголошення\n"
-        "🏠 **Інфо про будинок** - інформація про будинки Києва\n"
-        "🚪 **Вийти** - вийти з аккаунту",
+        "📸 Фото - надішліть фото для обробки\n"
+        "🔗 OLX - надішліть посилання на оголошення\n"
+        "🏠 Інфо про будинок - інформація про будинки Києва\n"
+        "🚪 Вийти - вийти з аккаунту",
         reply_markup=reply_markup
     )
 
@@ -252,7 +252,7 @@ def format_parameters(parameters, site_name):
     if not parameters:
         return ""
 
-    lines = [f"\n📋 **Інформація про квартиру ({site_name}):**\n"]
+    lines = [f"\n📋 Інформація про квартиру ({site_name}):\n"]
 
 
     param_order = [
@@ -284,7 +284,7 @@ def format_parameters(parameters, site_name):
                 'Меблювання': '🛋'
             }.get(param_name, '▪️')
 
-            lines.append(f"{emoji} **{param_name}:** {parameters[param_name]}")
+            lines.append(f"{emoji} {param_name}: {parameters[param_name]}")
 
     return '\n'.join(lines)
 
@@ -450,8 +450,8 @@ async def show_house_info_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        f"🏠 **База будинків Києва**\n\n"
-        f"📊 Всього будинків: **{total_count}**\n\n"
+        f"🏠 База будинків Києва\n\n"
+        f"📊 Всього будинків: {total_count}\n\n"
         f"Оберіть район або введіть адресу:",
         reply_markup=reply_markup
     )
@@ -469,7 +469,7 @@ async def handle_district_selection(update: Update, context: ContextTypes.DEFAUL
     context.user_data['searching_house'] = True
 
     await query.edit_message_text(
-        f"📍 Район: **{district}**\n\n"
+        f"📍 Район: {district}\n\n"
         f"Введіть адресу будинку:\n\n"
         f"Приклади:\n"
         f"• Хрещатик 15\n"
@@ -488,7 +488,7 @@ async def handle_direct_search(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['searching_house'] = True
 
     await query.edit_message_text(
-        "🔍 **Пошук за адресою**\n\n"
+        "🔍 Пошук за адресою\n\n"
         "Введіть адресу будинку:\n\n"
         "Приклади:\n"
         "• Хрещатик 15\n"
@@ -515,7 +515,7 @@ async def handle_house_search(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            f"❌ Не знайдено будинків за адресою:\n**{address}**\n\n"
+            f"❌ Не знайдено будинків за адресою:\n{address}\n\n"
             f"Спробуйте інший формат:\n"
             f"• Хрещатик 15\n"
             f"• Велика Васильківська 1",
@@ -570,10 +570,10 @@ async def handle_show_all_results(update: Update, context: ContextTypes.DEFAULT_
 
     # Формуємо повідомлення з усіма результатами
     messages = []
-    current_message = f"📋 **Знайдено будинків: {len(results)}**\n\n"
+    current_message = f"📋 Знайдено будинків: {len(results)}\n\n"
 
     for i, house in enumerate(results, 1):
-        house_text = f"**{i}. {house['address']}, {house['house_number']}**\n"
+        house_text = f"{i}. {house['address']}, {house['house_number']}\n"
         house_text += f"   📍 {house['region']}\n"
 
         if house.get('project'):
@@ -661,7 +661,7 @@ async def update_houses_database(update: Update, context: ContextTypes.DEFAULT_T
     last_update = ""
     while parser_thread.is_alive():
         current_update = (
-            f"📍 **{progress_data['district']}**\n"
+            f"📍 {progress_data['district']}\n"
             f"📄 Сторінка: {progress_data['page']}/{progress_data['total']}\n"
             f"🏠 Знайдено на сторінці: {progress_data['found']}"
         )
@@ -686,8 +686,8 @@ async def update_houses_database(update: Update, context: ContextTypes.DEFAULT_T
         )
     else:
         await update.message.reply_text(
-            f"✅ **Оновлення завершено!**\n\n"
-            f"📊 Всього додано будинків: **{result['total']}**",
+            f"✅ Оновлення завершено!\n\n"
+            f"📊 Всього додано будинків: {result['total']}",
             parse_mode='Markdown'
         )
 
