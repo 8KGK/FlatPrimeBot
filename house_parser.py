@@ -5,7 +5,6 @@
 import requests
 from bs4 import BeautifulSoup
 import re
-import json
 from database import get_connection
 
 
@@ -38,11 +37,11 @@ def create_houses_table():
                 region VARCHAR(50) NOT NULL,
                 address VARCHAR(255) NOT NULL,
                 house_number VARCHAR(20) NOT NULL,
-                project VARCHAR(100),
-                build_year VARCHAR(20),
-                material VARCHAR(255),
-                floors VARCHAR(20),
-                ceiling_height VARCHAR(20),
+                project VARCHAR(150),
+                build_year VARCHAR(50),
+                material VARCHAR(500),
+                floors VARCHAR(100),
+                ceiling_height VARCHAR(50),
                 INDEX idx_region (region),
                 INDEX idx_address (address),
                 INDEX idx_full_address (address, house_number)
@@ -62,42 +61,104 @@ def create_houses_table():
 def extract_houses_from_page(html_content, region_name):
     """
     Витягує дані про будинки з HTML сторінки
+
+    Парсить блоки <div class="col-xs-12 col-md-6 houseBlock">
     """
     houses = []
 
     try:
-        # Шукаємо JavaScript змінну var h = {...}
-        pattern = r'var h=(\{.*?\});'
-        match = re.search(pattern, html_content, re.DOTALL)
+        soup = BeautifulSoup(html_content, 'html.parser')
 
-        if not match:
-            print(f"⚠️ Не знайдено змінну 'h' для {region_name}")
+        # Знаходимо всі блоки з будинками
+        house_blocks = soup.find_all('div', class_='houseBlock')
+
+        if not house_blocks:
+            print(f"⚠️ Не знайдено блоків houseBlock для {region_name}")
             return houses
 
-        # Парсимо JSON
-        json_str = match.group(1)
-        houses_data = json.loads(json_str)
+        print(f"  Знайдено {len(house_blocks)} блоків будинків")
 
-        # Обробляємо кожен будинок
-        for house_id, house_info in houses_data.items():
+        for block in house_blocks:
             try:
-                house = {
+                # Отримуємо назву вулиці та номер будинку з <h3>
+                h3_tag = block.find('h3')
+                if not h3_tag:
+                    continue
+
+                a_tag = h3_tag.find('a')
+                if not a_tag:
+                    continue
+
+                # Повна адреса: "Ломоносова вулиця 4"
+                full_address = a_tag.get_text(strip=True)
+
+                # Розділяємо на вулицю і номер
+                # Останнє слово - номер будинку
+                parts = full_address.rsplit(' ', 1)
+                if len(parts) != 2:
+                    continue
+
+                street = parts[0]  # "Ломоносова вулиця"
+                house_num = parts[1]  # "4"
+
+                # Знаходимо таблицю з характеристиками
+                table = block.find('table', class_='table-striped')
+                if not table:
+                    # Додаємо хоча б адресу
+                    houses.append({
+                        'region': region_name,
+                        'address': street,
+                        'house_number': house_num,
+                        'project': '',
+                        'build_year': '',
+                        'material': '',
+                        'floors': '',
+                        'ceiling_height': ''
+                    })
+                    continue
+
+                # Парсимо дані з таблиці
+                house_data = {
                     'region': region_name,
-                    'address': house_info.get('address', {}).get('name', ''),
-                    'house_number': house_info.get('numHouse', {}).get('name', ''),
-                    'project': house_info.get('project', {}).get('name', ''),
-                    'build_year': house_info.get('buildYear', {}).get('name', ''),
-                    'material': house_info.get('material', {}).get('name', ''),
-                    'floors': house_info.get('numStor', {}).get('name', ''),
-                    'ceiling_height': house_info.get('height', {}).get('name', '')
+                    'address': street,
+                    'house_number': house_num,
+                    'project': '',
+                    'build_year': '',
+                    'material': '',
+                    'floors': '',
+                    'ceiling_height': ''
                 }
 
-                # Додаємо тільки якщо є адреса
-                if house['address'] and house['house_number']:
-                    houses.append(house)
+                # Проходимо по всіх рядках таблиці
+                rows = table.find_all('tr')
+                for row in rows:
+                    cells = row.find_all('td')
+                    if len(cells) != 2:
+                        continue
+
+                    label = cells[0].get_text(strip=True)
+                    value = cells[1].get_text(strip=True)
+
+                    # Витягуємо тільки текст, без посилань
+                    if cells[1].find('a'):
+                        value = cells[1].find('a').get_text(strip=True)
+
+                    # Маппінг полів
+                    if 'Проєкт' in label or 'Проект' in label:
+                        house_data['project'] = value
+                    elif 'Рік будівництва' in label:
+                        house_data['build_year'] = value
+                    elif 'Матеріал' in label:
+                        house_data['material'] = value
+                    elif 'Поверховість' in label:
+                        house_data['floors'] = value
+                    elif 'Висота стелі' in label:
+                        house_data['ceiling_height'] = value
+
+                houses.append(house_data)
 
             except Exception as e:
-                print(f"⚠️ Помилка обробки будинку {house_id}: {e}")
+                print(f"  ⚠️ Помилка обробки блоку будинку: {e}")
                 continue
 
         return houses
@@ -119,10 +180,8 @@ def get_total_pages(url):
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.content, 'html.parser')
-
         # Шукаємо totalPages в JavaScript
-        pattern = r"var totalPages='(\d+)';"
+        pattern = r"var totalPages\s*=\s*['\"](\d+)['\"];"
         match = re.search(pattern, response.text)
 
         if match:

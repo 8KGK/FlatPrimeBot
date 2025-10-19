@@ -2,6 +2,7 @@
 Модуль для пошуку інформації про будинки
 """
 
+import re  # ДОДАНО: імпорт модуля re
 from database import get_connection
 from typing import Optional, List, Dict
 
@@ -240,9 +241,6 @@ def parse_address_input(text: str) -> tuple:
     else:
         # Тільки назва вулиці
         return (' '.join(parts), None)
-
-
-import re
 
 
 def search_house(text: str):
