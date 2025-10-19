@@ -1,7 +1,5 @@
 """
 Головний файл Telegram бота
-
-Проверка нах
 """
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
