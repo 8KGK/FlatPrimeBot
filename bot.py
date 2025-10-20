@@ -27,6 +27,13 @@ from house_search import (
     get_total_houses_count
 )
 from house_parser import parse_all_districts, create_houses_table
+from user_settings import (
+    create_user_settings_table,
+    get_watermark_position,
+    set_watermark_position,
+    get_position_name,
+    WATERMARK_POSITIONS
+)
 
 # Telegram username адміністратора для оновлення бази будинків
 ADMIN_USERNAME = "r24npo9"
@@ -80,7 +87,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Створюємо клавіатуру з функціями
     keyboard = [
         [KeyboardButton("📸 Фото"), KeyboardButton("🔗 OLX")],
-        [KeyboardButton("🏠 Інфо про будинок")],
+        [KeyboardButton("🏠 Інфо про будинок"), KeyboardButton("⚙️ Налаштування")],
         [KeyboardButton("🚪 Вийти")]
     ]
 
@@ -92,6 +99,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📸 Фото - надішліть фото для обробки\n"
         "🔗 OLX - надішліть посилання на оголошення\n"
         "🏠 Інфо про будинок - інформація про будинки Києва\n"
+        "⚙️ Налаштування - налаштування бота\n"
         "🚪 Вийти - вийти з аккаунту",
         reply_markup=reply_markup
     )
@@ -136,6 +144,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     elif text == "🏠 Інфо про будинок":
         await show_house_info_menu(update, context)
+    elif text == "⚙️ Налаштування":
+        await show_settings_menu(update, context)
     elif text == "🚪 Вийти":
         logout_user(telegram_user_id)
         await update.message.reply_text(
@@ -204,6 +214,69 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             reply_markup=ReplyKeyboardRemove()
         )
         await start(update, context)
+
+
+async def show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показує меню налаштувань"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    telegram_user_id = update.effective_user.id
+
+    # Отримуємо поточну позицію водяного знака
+    current_position = get_watermark_position(telegram_user_id)
+    current_position_name = get_position_name(current_position)
+
+    # Створюємо inline клавіатуру з позиціями
+    keyboard = []
+
+    for position_key, position_name in WATERMARK_POSITIONS.items():
+        # Додаємо галочку до поточної позиції
+        button_text = f"✅ {position_name}" if position_key == current_position else position_name
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"set_wm_{position_key}")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "⚙️ Налаштування\n\n"
+        "📍 Де розміщувати водяний знак?\n\n"
+        f"Поточна позиція: {current_position_name}",
+        reply_markup=reply_markup
+    )
+
+
+async def handle_watermark_position_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє зміну позиції водяного знака"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    query = update.callback_query
+    await query.answer()
+
+    telegram_user_id = update.effective_user.id
+
+    # Отримуємо нову позицію з callback_data
+    position = query.data.replace("set_wm_", "")
+
+    # Зберігаємо нову позицію
+    if set_watermark_position(telegram_user_id, position):
+        position_name = get_position_name(position)
+
+        # Оновлюємо клавіатуру
+        keyboard = []
+        for position_key, pos_name in WATERMARK_POSITIONS.items():
+            button_text = f"✅ {pos_name}" if position_key == position else pos_name
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"set_wm_{position_key}")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "⚙️ Налаштування\n\n"
+            "📍 Де розміщувати водяний знак?\n\n"
+            f"Поточна позиція: {position_name}\n\n"
+            "✅ Налаштування збережено!",
+            reply_markup=reply_markup
+        )
+    else:
+        await query.answer("❌ Помилка збереження налаштувань", show_alert=True)
 
 
 async def process_photo_batch(context: ContextTypes.DEFAULT_TYPE):
@@ -294,8 +367,11 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from PIL import Image
         image = Image.open(BytesIO(photo_bytes))
 
-        # Обробляємо фото
-        processed_image = process_single_image(image)
+        # Отримуємо позицію водяного знака для користувача
+        watermark_position = get_watermark_position(telegram_user_id)
+
+        # Обробляємо фото з вказаною позицією
+        processed_image = process_single_image(image, watermark_position)
 
         if not processed_image:
             await update.message.reply_text("❌ Помилка при обробці фото")
@@ -387,7 +463,7 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробляє посилання на OLX, Rieltor.ua або LUN.ua та відправляє архів з фото"""
     telegram_user_id = update.effective_user.id
 
-    # Перевірка авторізації
+    # Перевірка авторизації
     if not is_authorized(telegram_user_id):
         await update.message.reply_text(
             "❌ Спочатку авторизуйтесь!\n"
@@ -446,6 +522,9 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import requests
         from PIL import Image
 
+        # Отримуємо позицію водяного знака для користувача
+        watermark_position = get_watermark_position(telegram_user_id)
+
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
@@ -460,8 +539,8 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Відкриваємо зображення
                     image = Image.open(BytesIO(response.content))
 
-                    # Обробляємо фото
-                    processed_image = process_single_image(image)
+                    # Обробляємо фото з позицією водяного знака користувача
+                    processed_image = process_single_image(image, watermark_position)
 
                     if processed_image:
                         # Зберігаємо в буфер
@@ -792,6 +871,8 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_direct_search(update, context)
     elif query.data == "show_all_results":
         await handle_show_all_results(update, context)
+    elif query.data.startswith("set_wm_"):
+        await handle_watermark_position_change(update, context)
 
 
 def main():
@@ -801,6 +882,9 @@ def main():
 
     # Створюємо таблицю будинків якщо не існує
     create_houses_table()
+
+    # Створюємо таблицю налаштувань користувачів
+    create_user_settings_table()
 
     # Завантажуємо активні сесії з БД
     init_sessions()
@@ -829,6 +913,7 @@ def main():
     print("📋 Парсинг параметрів квартир активний")
     print("🏠 База даних будинків Києва активна")
     print("📸 Пакетна обробка фото активна (>3 фото = ZIP архів)")
+    print("⚙️ Персональні налаштування водяного знака активні")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

@@ -7,9 +7,14 @@ from PIL import Image
 from config import WATERMARK_PATH
 
 
-def process_single_image(image):
+def process_single_image(image, watermark_position='center'):
     """
     Обробляє одне зображення: змінює розмір та додає водяний знак
+
+    Args:
+        image: PIL Image об'єкт
+        watermark_position: позиція водяного знака
+            ('center', 'top_left', 'top_right', 'bottom_left', 'bottom_right')
     """
     try:
         # Конвертуємо в RGB якщо потрібно
@@ -20,7 +25,7 @@ def process_single_image(image):
         image = _resize_if_needed(image)
 
         # Додаємо водяний знак
-        image = _add_watermark(image)
+        image = _add_watermark(image, watermark_position)
 
         return image
 
@@ -49,9 +54,13 @@ def _resize_if_needed(image):
     return image
 
 
-def _add_watermark(image):
+def _add_watermark(image, position='center'):
     """
     Додає водяний знак на зображення
+
+    Args:
+        image: PIL Image об'єкт
+        position: позиція водяного знака
     """
     if not os.path.exists(WATERMARK_PATH):
         print(f"⚠️ Водяний знак не знайдено за шляхом: {WATERMARK_PATH}")
@@ -63,23 +72,46 @@ def _add_watermark(image):
     if watermark.mode != 'RGBA':
         watermark = watermark.convert('RGBA')
 
-    # Розміщуємо водяний знак по центру
     # Розмір водяного знаку - 40% від ширини фото
-    wm_width = int(image.width * 0.6)
+    wm_width = int(image.width * 0.4)
     wm_ratio = wm_width / watermark.width
     wm_height = int(watermark.height * wm_ratio)
 
     # Змінюємо розмір водяного знаку зі збереженням пропорцій
     watermark = watermark.resize((wm_width, wm_height), Image.Resampling.LANCZOS)
 
-    # Позиція по центру фото
-    position = (
-        (image.width - wm_width) // 2,
-        (image.height - wm_height) // 2
-    )
+    # Відступи від країв (5% від розміру фото)
+    margin_x = int(image.width * 0.05)
+    margin_y = int(image.height * 0.05)
+
+    # Визначаємо позицію водяного знака
+    if position == 'center':
+        # По центру
+        x = (image.width - wm_width) // 2
+        y = (image.height - wm_height) // 2
+    elif position == 'top_left':
+        # Зліва вгорі
+        x = margin_x
+        y = margin_y
+    elif position == 'top_right':
+        # Справа вгорі
+        x = image.width - wm_width - margin_x
+        y = margin_y
+    elif position == 'bottom_left':
+        # Зліва внизу
+        x = margin_x
+        y = image.height - wm_height - margin_y
+    elif position == 'bottom_right':
+        # Справа внизу
+        x = image.width - wm_width - margin_x
+        y = image.height - wm_height - margin_y
+    else:
+        # За замовчуванням - по центру
+        x = (image.width - wm_width) // 2
+        y = (image.height - wm_height) // 2
 
     # Додаємо водяний знак
-    image.paste(watermark, position, watermark)
+    image.paste(watermark, (x, y), watermark)
 
     return image
 
