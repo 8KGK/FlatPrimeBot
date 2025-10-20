@@ -220,12 +220,22 @@ def _clean_and_deduplicate_urls(photo_urls):
     Очищає та видаляє дублікати з URL-ів
     """
     clean_urls = []
+    seen_base_urls = set()
 
     for url in photo_urls:
         if url and url.startswith('http'):
             # Отримуємо найбільший розмір
             url = re.sub(r';s=\d+x\d+', ';s=1920x1080', url)
-            if url not in clean_urls:
+            url = re.sub(r'\{width\}x\{height\}', '1920x1080', url)
+
+            # Витягуємо базовий URL без параметрів для перевірки дублікатів
+            # Видаляємо параметри розміру, якості та інші query параметри
+            base_url = re.sub(r';s=.*$', '', url)  # Видаляємо ;s=...
+            base_url = re.sub(r'\?.*$', '', base_url)  # Видаляємо query параметри
+
+            # Перевіряємо чи це унікальне зображення
+            if base_url not in seen_base_urls:
+                seen_base_urls.add(base_url)
                 clean_urls.append(url)
 
     return clean_urls

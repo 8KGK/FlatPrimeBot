@@ -1,280 +1,252 @@
 """
-Модуль для парсингу фотографій з LUN.ua
+Модуль для парсингу фотографій з LUN.ua (Playwright версія)
 """
 
 import re
-import json
-import requests
-from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 
-def download_lun_photos(url):
+async def download_lun_photos(url):
     """
-    Завантажує фотографії з оголошення LUN.ua
+    Асинхронна функція для завантаження фото з LUN.ua
+    Використовується в async контексті (Telegram bot)
     """
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Referer': 'https://lun.ua/'
-        }
+        async with async_playwright() as p:
+            # Запускаємо браузер в headless режимі
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox']
+            )
 
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080}
+            )
+            page = await context.new_page()
 
-        soup = BeautifulSoup(response.content, 'html.parser')
+            # Відкриваємо сторінку (domcontentloaded швидше ніж networkidle)
+            try:
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            except Exception as e:
+                print(f"Помилка завантаження сторінки: {e}")
+                await browser.close()
+                return []
 
-        # Шукаємо всі зображення в різних можливих місцях
-        photo_urls = []
+            # Чекаємо завантаження галереї
+            try:
+                await page.wait_for_selector('div.lazyload-wrapper.NativeGallery_slide__KsrqV', timeout=15000)
+                # Додатково чекаємо щоб JS точно виконався
+                await page.wait_for_timeout(2000)
+            except PlaywrightTimeout:
+                print("Галерею не знайдено на сторінці")
+                await browser.close()
+                return []
 
-        # Метод 1: Шукаємо в JSON структурах
-        photo_urls.extend(_parse_json_data(soup))
+            photo_urls = set()
+            photo_hashes = set()  # Для перевірки унікальності по шляху файлу
 
-        # Метод 2: Шукаємо в галереї зображень
-        photo_urls.extend(_parse_gallery(soup))
+            # Збираємо фото, прокручуючи галерею
+            max_clicks = 100  # Максимум кліків по стрілці (захист від зациклення)
+            clicks_count = 0
+            no_new_photos_count = 0
 
-        # Метод 3: Шукаємо img теги з певними класами
-        photo_urls.extend(_parse_img_tags(soup))
+            while clicks_count < max_clicks:
+                # Збираємо поточні фото
+                try:
+                    slides = await page.query_selector_all('div.lazyload-wrapper.NativeGallery_slide__KsrqV')
+                except Exception as e:
+                    print(f"Помилка при пошуку слайдів: {e}")
+                    break
 
-        # Метод 4: Шукаємо в data-атрибутах
-        photo_urls.extend(_parse_data_attributes(soup))
+                previous_count = len(photo_hashes)
 
-        # Метод 5: Шукаємо в JavaScript змінних
-        photo_urls.extend(_parse_js_variables(soup))
+                for slide in slides:
+                    try:
+                        # Шукаємо source теги з srcset
+                        sources = await slide.query_selector_all('source')
+                        for source in sources:
+                            srcset = await source.get_attribute('srcset')
+                            if srcset:
+                                # Витягуємо URL (srcset може містити кілька URL)
+                                urls = _parse_srcset(srcset)
+                                for url in urls:
+                                    # Отримуємо унікальний ідентифікатор фото (шлях без параметрів)
+                                    photo_id = _get_photo_id(url)
+                                    if photo_id and photo_id not in photo_hashes:
+                                        photo_hashes.add(photo_id)
+                                        photo_urls.add(url)
 
-        # Очищаємо і унікалізуємо URL-и
-        clean_urls = _clean_and_deduplicate_urls(photo_urls)
+                        # Також перевіряємо img теги
+                        imgs = await slide.query_selector_all('img')
+                        for img in imgs:
+                            src = await img.get_attribute('src') or await img.get_attribute('data-src')
+                            if src and src.startswith('http'):
+                                photo_id = _get_photo_id(src)
+                                if photo_id and photo_id not in photo_hashes:
+                                    photo_hashes.add(photo_id)
+                                    photo_urls.add(src)
+                    except Exception as e:
+                        print(f"Помилка при обробці слайду: {e}")
+                        continue
 
-        return clean_urls[:50]  # Максимум 50 фото
+                # Перевіряємо чи з'явились нові фото
+                if len(photo_hashes) == previous_count:
+                    no_new_photos_count += 1
+                    if no_new_photos_count >= 1:  # Тільки 1 спроба
+                        print(f"Завершено: не знайдено нових фото")
+                        break
+                else:
+                    no_new_photos_count = 0
+
+                # Натискаємо на стрілку вправо
+                try:
+                    arrow = await page.query_selector('div.NavigationArrowRefresh-module_content__OTwEb')
+                    if arrow and await arrow.is_visible():
+                        await arrow.click()
+                        # Чекаємо трохи для підгрузки
+                        await page.wait_for_timeout(800)
+                        clicks_count += 1
+                    else:
+                        # Стрілки немає або не видима - всі фото зібрані
+                        print("Стрілка вправо не знайдена або не видима")
+                        break
+                except Exception as e:
+                    print(f"Помилка при кліку на стрілку: {e}")
+                    break
+
+            await browser.close()
+
+            # Очищаємо та максимізуємо якість
+            clean_urls = _clean_and_deduplicate_urls(list(photo_urls))
+
+            print(f"Знайдено {len(clean_urls)} унікальних фотографій")
+            return clean_urls[:50]  # Максимум 50 фото
 
     except Exception as e:
-        print(f"Помилка завантаження LUN.ua: {e}")
+        print(f"Критична помилка завантаження LUN.ua: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
-def _parse_json_data(soup):
+def _parse_srcset(srcset):
     """
-    Парсить JSON дані на сторінці
+    Парсить srcset атрибут та витягує URL-и
     """
-    photo_urls = []
+    urls = []
+    if not srcset:
+        return urls
 
-    # Шукаємо script теги з JSON-LD
-    scripts = soup.find_all('script', type='application/ld+json')
-    for script in scripts:
-        try:
-            data = json.loads(script.string)
-            if isinstance(data, dict):
-                # Шукаємо image поля
-                if 'image' in data:
-                    images = data['image']
-                    if isinstance(images, list):
-                        photo_urls.extend(images)
-                    elif isinstance(images, str):
-                        photo_urls.append(images)
-        except:
-            pass
+    try:
+        # srcset формат: "url1 1x, url2 2x" або "url1 400w, url2 800w"
+        parts = srcset.split(',')
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            # Витягуємо URL (все до першого пробілу)
+            url_parts = part.split()
+            if url_parts and url_parts[0].startswith('http'):
+                urls.append(url_parts[0])
+    except Exception as e:
+        print(f"Помилка парсингу srcset: {e}")
 
-    # Шукаємо звичайні script теги з JSON
-    scripts = soup.find_all('script', type='application/json')
-    for script in scripts:
-        try:
-            data = json.loads(script.string)
-            # Рекурсивно шукаємо URL-и зображень
-            _extract_images_from_json(data, photo_urls)
-        except:
-            pass
-
-    return photo_urls
+    return urls
 
 
-def _extract_images_from_json(data, photo_urls):
+def _get_photo_id(url):
     """
-    Рекурсивно витягує URL-и зображень з JSON структури
+    Отримує унікальний ідентифікатор фото з URL
+    Видаляє параметри, розміри, розширення
     """
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if isinstance(key, str) and any(k in key.lower() for k in ['image', 'photo', 'picture', 'img']):
-                if isinstance(value, str) and value.startswith('http'):
-                    photo_urls.append(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, str) and item.startswith('http'):
-                            photo_urls.append(item)
-            _extract_images_from_json(value, photo_urls)
-    elif isinstance(data, list):
-        for item in data:
-            _extract_images_from_json(item, photo_urls)
+    if not url:
+        return None
 
+    try:
+        # Видаляємо параметри запиту
+        url_base = url.split('?')[0]
 
-def _parse_js_variables(soup):
-    """
-    Парсить JavaScript змінні на сторінці
-    """
-    photo_urls = []
+        # Видаляємо розширення
+        url_no_ext = re.sub(r'\.(jpg|jpeg|png|webp)$', '', url_base, flags=re.IGNORECASE)
 
-    scripts = soup.find_all('script')
-    for script in scripts:
-        if script.string:
-            # Шукаємо URL-и зображень в JS коді
-            matches = re.findall(r'https?://[^\s"\']+\.(?:jpg|jpeg|png|webp)', script.string)
-            for match in matches:
-                if 'lun.ua' in match or 'img' in match or 'photo' in match:
-                    photo_urls.append(match)
+        # Видаляємо параметри розміру з шляху
+        url_no_ext = re.sub(r'_\d+x\d+$', '', url_no_ext)
+        url_no_ext = re.sub(r'/\d+x\d+$', '', url_no_ext)
+        url_no_ext = re.sub(r'_w\d+$', '', url_no_ext)
+        url_no_ext = re.sub(r'_h\d+$', '', url_no_ext)
 
-    return photo_urls
-
-
-def _parse_gallery(soup):
-    """
-    Парсить галерею зображень на сторінці
-    """
-    photo_urls = []
-
-    # Шукаємо елементи галереї
-    gallery_selectors = [
-        'div[class*="gallery"]',
-        'div[class*="slider"]',
-        'div[class*="photo"]',
-        'div[id*="gallery"]',
-        'ul[class*="gallery"]',
-        'div[class*="image"]',
-        'div[class*="swiper"]',
-        'section[class*="photo"]'
-    ]
-
-    for selector in gallery_selectors:
-        gallery_elements = soup.select(selector)
-        for element in gallery_elements:
-            # Шукаємо всі img теги всередині
-            imgs = element.find_all('img')
-            for img in imgs:
-                src = img.get('src') or img.get('data-src') or img.get('data-lazy') or img.get('data-original')
-                if src:
-                    photo_urls.append(src)
-
-            # Також шукаємо в background-image стилях
-            style = element.get('style')
-            if style:
-                bg_matches = re.findall(r'url\(["\']?(https?://[^"\']+)["\']?\)', style)
-                photo_urls.extend(bg_matches)
-
-    return photo_urls
-
-
-def _parse_img_tags(soup):
-    """
-    Парсить IMG теги на сторінці
-    """
-    photo_urls = []
-
-    # Шукаємо img теги з певними характеристиками
-    for img in soup.find_all('img'):
-        # Перевіряємо різні атрибути
-        src = (img.get('src') or
-               img.get('data-src') or
-               img.get('data-lazy') or
-               img.get('data-original') or
-               img.get('data-srcset'))
-
-        if src:
-            # Якщо це srcset, беремо найбільше зображення
-            if 'data-srcset' in img.attrs:
-                srcset = img.get('data-srcset')
-                urls = re.findall(r'(https?://[^\s,]+)', srcset)
-                if urls:
-                    src = urls[-1]  # Беремо останній (зазвичай найбільший)
-
-            # Фільтруємо тільки зображення оголошень
-            if any(keyword in src.lower() for keyword in ['lun.ua', 'estate', 'realty', 'img', 'photo']):
-                # Змінюємо розмір на максимальний
-                src = _maximize_image_size(src)
-                photo_urls.append(src)
-
-    return photo_urls
-
-
-def _parse_data_attributes(soup):
-    """
-    Парсить data-* атрибути на сторінці
-    """
-    photo_urls = []
-
-    # Шукаємо елементи з data-атрибутами
-    elements = soup.find_all(['div', 'a', 'li', 'span', 'section'])
-    for element in elements:
-        for attr in element.attrs:
-            if any(keyword in attr.lower() for keyword in ['image', 'photo', 'src', 'picture', 'img']):
-                value = element[attr]
-                if isinstance(value, str) and value.startswith('http'):
-                    photo_urls.append(value)
-                elif isinstance(value, str) and value.startswith('/'):
-                    # Додаємо домен якщо це відносний шлях
-                    photo_urls.append(f"https://lun.ua{value}")
-
-    return photo_urls
+        return url_no_ext
+    except Exception as e:
+        print(f"Помилка отримання photo_id: {e}")
+        return None
 
 
 def _maximize_image_size(url):
     """
     Змінює URL зображення для отримання максимального розміру
     """
-    # Видаляємо параметри розміру
-    url = re.sub(r'_\d+x\d+', '', url)
-    url = re.sub(r'/\d+x\d+/', '/original/', url)
-    url = re.sub(r'thumb_\d+', 'original', url)
-    url = re.sub(r'small_\d+', 'original', url)
-    url = re.sub(r'medium_\d+', 'original', url)
+    if not url:
+        return url
 
-    # Замінюємо розміри на великі
-    url = re.sub(r'w=\d+', 'w=2048', url)
-    url = re.sub(r'h=\d+', 'h=2048', url)
-    url = re.sub(r'width=\d+', 'width=2048', url)
-    url = re.sub(r'height=\d+', 'height=2048', url)
+    try:
+        # Видаляємо параметри розміру
+        url = re.sub(r'_\d+x\d+', '', url)
+        url = re.sub(r'/\d+x\d+/', '/original/', url)
+        url = re.sub(r'thumb_\d+', 'original', url)
+        url = re.sub(r'small_\d+', 'original', url)
+        url = re.sub(r'medium_\d+', 'original', url)
 
-    # Замінюємо якість на максимальну
-    url = re.sub(r'q=\d+', 'q=100', url)
-    url = re.sub(r'quality=\d+', 'quality=100', url)
+        # Замінюємо розміри на великі
+        url = re.sub(r'w=\d+', 'w=2048', url)
+        url = re.sub(r'h=\d+', 'h=2048', url)
+        url = re.sub(r'width=\d+', 'width=2048', url)
+        url = re.sub(r'height=\d+', 'height=2048', url)
+
+        # Замінюємо якість на максимальну
+        url = re.sub(r'q=\d+', 'q=100', url)
+        url = re.sub(r'quality=\d+', 'quality=100', url)
+    except Exception as e:
+        print(f"Помилка максимізації URL: {e}")
 
     return url
 
 
 def _clean_and_deduplicate_urls(photo_urls):
     """
-    Очищає та видаляє дублікати з URL-ів
+    Очищає, максимізує якість та видаляє дублікати з URL-ів
     """
     clean_urls = []
-    seen_urls = set()
+    seen_ids = set()
 
     for url in photo_urls:
-        if not url:
-            continue
-
-        # Перевіряємо чи це валідний URL зображення
-        if not url.startswith('http'):
-            # Додаємо домен якщо це відносний шлях
-            if url.startswith('/'):
-                url = f"https://lun.ua{url}"
-            else:
+        try:
+            if not url or not isinstance(url, str) or not url.startswith('http'):
                 continue
 
-        # Ігноруємо іконки, логотипи та маленькі зображення
-        if any(keyword in url.lower() for keyword in ['logo', 'icon', 'avatar', 'banner', 'btn', 'button']):
-            continue
+            # Ігноруємо іконки, логотипи та маленькі зображення
+            url_lower = url.lower()
+            if any(keyword in url_lower for keyword in ['logo', 'icon', 'avatar', 'banner', 'btn', 'button', 'thumb']):
+                continue
 
-        # Перевіряємо розширення файлу
-        if not re.search(r'\.(jpg|jpeg|png|webp)', url, re.IGNORECASE):
-            continue
+            # Перевіряємо розширення файлу
+            if not re.search(r'\.(jpg|jpeg|png|webp)', url, re.IGNORECASE):
+                continue
 
-        # Максимізуємо розмір
-        url = _maximize_image_size(url)
+            # Отримуємо ID фото
+            photo_id = _get_photo_id(url)
+            if not photo_id or photo_id in seen_ids:
+                continue
 
-        # Видаляємо параметри запиту для порівняння
-        url_base = url.split('?')[0]
+            seen_ids.add(photo_id)
 
-        if url_base not in seen_urls:
-            seen_urls.add(url_base)
+            # Максимізуємо розмір
+            url = _maximize_image_size(url)
             clean_urls.append(url)
+
+        except Exception as e:
+            print(f"Помилка обробки URL {url}: {e}")
+            continue
 
     return clean_urls
 
@@ -283,4 +255,14 @@ def is_lun_url(url):
     """
     Перевіряє чи є URL посиланням на LUN.ua
     """
+    if not url or not isinstance(url, str):
+        return False
     return bool(re.match(r'https?://(?:www\.)?lun\.ua/', url))
+
+
+# Додаткова async версія для явного використання
+async def download_lun_photos_async(url):
+    """
+    Експортована async версія (аліас)
+    """
+    return await download_lun_photos(url)

@@ -387,7 +387,7 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробляє посилання на OLX, Rieltor.ua або LUN.ua та відправляє архів з фото"""
     telegram_user_id = update.effective_user.id
 
-    # Перевірка авторизації
+    # Перевірка авторізації
     if not is_authorized(telegram_user_id):
         await update.message.reply_text(
             "❌ Спочатку авторизуйтесь!\n"
@@ -396,7 +396,6 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = update.message.text.strip()
-
 
     parameters = {}
 
@@ -413,7 +412,7 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif is_lun_url(url):
         site_name = "LUN.ua"
         await update.message.reply_text("🔍 Завантажую фотографії з LUN.ua...")
-        photo_urls = download_lun_photos(url)
+        photo_urls = await download_lun_photos(url)  # ← ДОДАНО await
 
     else:
         await update.message.reply_text(
@@ -433,16 +432,13 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-
         if parameters:
             params_text = format_parameters(parameters, site_name)
             await update.message.reply_text(params_text, parse_mode='Markdown')
 
-
         progress_message = await update.message.reply_text(
             f"📸 Знайдено {len(photo_urls)} фото.\n⏳ Обробляю: 0/{len(photo_urls)}"
         )
-
 
         zip_buffer = BytesIO()
 
