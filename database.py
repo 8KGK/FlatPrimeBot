@@ -14,8 +14,8 @@ def get_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",
-        password="",
-        database="Flat",
+        password="OFodZlTyBEAJqMiJwfmOPUljIPAwbBtz",
+        database="railway",
         autocommit=True
     )
 
