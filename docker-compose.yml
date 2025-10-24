@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # MySQL база данных
+  mysql:
+    image: mysql:8.2
+    container_name: telegram-bot-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD:
+      MYSQL_DATABASE: flat
+    volumes:
+      # Постоянное хранилище для данных БД
+      - mysql_data:/var/lib/mysql
+      # Автоматическая загрузка backup при первом запуске
+      - ./backup.sql:/docker-entrypoint-initdb.d/backup.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Telegram бот
+  telegram-bot:
+    build: .
+    container_name: telegram-bot
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # Токен бота
+      - BOT_TOKEN=${BOT_TOKEN}
+
+      # Подключение к MySQL контейнеру
+      - DB_HOST=mysql
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_PORT=3306
+    volumes:
+      # Водяной знак
+      - ./watermark.png:/app/watermark.png:ro
+
+volumes:
+  mysql_data:

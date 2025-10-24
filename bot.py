@@ -485,10 +485,7 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔍 Завантажую інформацію з Rieltor.ua...")
         photo_urls = download_rieltor_photos(url)
         parameters = parse_rieltor_parameters(url)
-    elif is_lun_url(url):
-        site_name = "LUN.ua"
-        await update.message.reply_text("🔍 Завантажую фотографії з LUN.ua...")
-        photo_urls = await download_lun_photos(url)  # ← ДОДАНО await
+
 
     else:
         await update.message.reply_text(
