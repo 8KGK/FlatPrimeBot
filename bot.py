@@ -2,31 +2,31 @@
 Головний файл Telegram бота
 """
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from io import BytesIO
+import os
 import re
 import zipfile
-import os
 from datetime import datetime
+from io import BytesIO
 
-from image_processor import process_single_image
-from olx_parser import download_olx_photos, parse_olx_parameters
-from rieltor_parser import download_rieltor_photos, is_rieltor_url, parse_rieltor_parameters
-from lun_parser import download_lun_photos, is_lun_url
-from config import BOT_TOKEN
-from database import get_all_users, verify_password, get_user_name, create_sessions_table
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, WebAppInfo
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
 from auth import (
     is_authorized, authorize_user, logout_user,
     get_authorized_user, set_pending_auth,
     get_pending_auth, clear_pending_auth, init_sessions
 )
+from config import BOT_TOKEN
+from database import get_all_users, verify_password, get_user_name, create_sessions_table
+from house_parser import parse_all_districts, create_houses_table
 from house_search import (
     search_house,
     format_house_info,
     get_total_houses_count
 )
-from house_parser import parse_all_districts, create_houses_table
+from image_processor import process_single_image
+from olx_parser import download_olx_photos, parse_olx_parameters
+from rieltor_parser import download_rieltor_photos, is_rieltor_url, parse_rieltor_parameters
 from user_settings import (
     create_user_settings_table,
     get_watermark_position,
@@ -38,6 +38,9 @@ from user_settings import (
 # Telegram username адміністратора для оновлення бази будинків
 ADMIN_USERNAME = "r24npo9"
 
+# URL карти (змінна середовища для гнучкості)
+MAP_URL = os.getenv('MAP_URL', 'https://8kgk.github.io/novo-bud')
+
 # Час очікування між фото (в секундах)
 PHOTO_BATCH_TIMEOUT = 3
 
@@ -47,6 +50,7 @@ KYIV_DISTRICTS = [
     'Оболонський', 'Печерський', 'Подільський', 'Святошинський',
     'Солом\'янський', 'Шевченківський'
 ]
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -88,6 +92,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [KeyboardButton("📸 Фото"), KeyboardButton("🔗 OLX")],
         [KeyboardButton("🏠 Інфо про будинок"), KeyboardButton("⚙️ Налаштування")],
+        [KeyboardButton("🗺 Карта новобудов", web_app=WebAppInfo(url=MAP_URL))],
         [KeyboardButton("🚪 Вийти")]
     ]
 
@@ -99,6 +104,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📸 Фото - надішліть фото для обробки\n"
         "🔗 OLX - надішліть посилання на оголошення\n"
         "🏠 Інфо про будинок - інформація про будинки Києва\n"
+        "🗺 Карта новобудов - інтерактивна карта нерухомості\n"
         "⚙️ Налаштування - налаштування бота\n"
         "🚪 Вийти - вийти з аккаунту",
         reply_markup=reply_markup
@@ -886,8 +892,15 @@ def main():
     # Завантажуємо активні сесії з БД
     init_sessions()
 
-    # Створюємо додаток
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Створюємо додаток з JobQueue
+    from telegram.ext import JobQueue
+
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .job_queue(JobQueue())
+        .build()
+    )
 
     # Додаємо обробники команд
     application.add_handler(CommandHandler("start", start))
@@ -903,14 +916,16 @@ def main():
 
     # Запускаємо бота
     print("🤖 Бот запущено!")
-    print("📝 Система авторизації активна")
-    print("🔐 Підключено до бази даних MySQL")
+    print("🔐 Система авторизації активна")
+    print("🔗 Підключено до бази даних MySQL")
     print("💾 Сесії зберігаються в БД")
     print("📦 Фото з OLX, Rieltor.ua та LUN.ua відправляються ZIP архівом")
     print("📋 Парсинг параметрів квартир активний")
     print("🏠 База даних будинків Києва активна")
     print("📸 Пакетна обробка фото активна (>3 фото = ZIP архів)")
     print("⚙️ Персональні налаштування водяного знака активні")
+    print("✅ JobQueue ініціалізовано!")
+
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   # MySQL база данных
@@ -7,7 +6,7 @@ services:
     container_name: telegram-bot-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD:
+      MYSQL_ROOT_PASSWORD: 990099
       MYSQL_DATABASE: flat
     volumes:
       # Постоянное хранилище для данных БД
@@ -38,6 +37,9 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - DB_PORT=3306
+
+      # URL карти (тепер GitHub Pages)
+      - MAP_URL=https://8kgk.github.io/Site
     volumes:
       # Водяной знак
       - ./watermark.png:/app/watermark.png:ro

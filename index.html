@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Карта Новобудов</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #map {
+            width: 100vw;
+            height: 100vh;
+            touch-action: pan-x pan-y pinch-zoom;
+        }
+
+        .popup-content {
+            font-size: 14px;
+            min-width: 220px;
+        }
+
+        .popup-content h3 {
+            margin: 0 0 8px 0;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+
+        .popup-content p {
+            margin: 4px 0;
+            color: #555;
+            font-size: 13px;
+        }
+
+        .popup-content .price {
+            font-size: 18px;
+            font-weight: bold;
+            color: #e74c3c;
+            margin: 8px 0;
+        }
+
+        .popup-content button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 8px;
+            width: 100%;
+            font-size: 14px;
+            touch-action: manipulation;
+        }
+
+        .popup-content button:active {
+            background: #2980b9;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 80px;
+            right: 10px;
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            font-size: 12px;
+        }
+
+        .legend h4 {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 4px 0;
+        }
+
+        .legend-color {
+            width: 18px;
+            height: 18px;
+            margin-right: 6px;
+            border: 2px solid #333;
+            border-radius: 3px;
+        }
+
+        .toolbar {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .toolbar button {
+            flex: 1;
+            min-width: 100px;
+            padding: 10px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .toolbar button:active {
+            background: #2980b9;
+        }
+
+        .toolbar button.secondary {
+            background: #95a5a6;
+        }
+
+        .toolbar button.secondary:active {
+            background: #7f8c8d;
+        }
+
+        .toolbar button.finish {
+            background: #27ae60;
+        }
+
+        .toolbar button.finish:active {
+            background: #229954;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            overflow-y: auto;
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-content h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+        }
+
+        .modal-content input,
+        .modal-content select,
+        .modal-content textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .modal-content label {
+            font-weight: bold;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .modal-buttons button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .btn-save {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-cancel {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .info-banner {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(52, 152, 219, 0.95);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .info-banner.active {
+            display: block;
+        }
+
+        .info-banner.delete-mode {
+            background: rgba(231, 76, 60, 0.95);
+        }
+
+        .info-banner .point-counter {
+            font-weight: bold;
+            font-size: 15px;
+            margin-top: 5px;
+        }
+
+        .delete-cursor {
+            cursor: crosshair !important;
+        }
+
+        .deletable-polygon {
+            cursor: pointer !important;
+        }
+
+        .deletable-polygon:hover {
+            filter: brightness(0.7) !important;
+        }
+
+        /* Стиль для временного полигона */
+        .temp-polygon {
+            stroke: #e74c3c;
+            stroke-width: 3;
+            stroke-dasharray: 10, 5;
+            fill: rgba(231, 76, 60, 0.3);
+        }
+
+        /* Стиль для линий между точками */
+        .temp-line {
+            stroke: #e74c3c;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="info-banner" id="infoBanner">
+        📍 Клікайте на карті, щоб позначити кути території ЖК<br>
+        <span class="point-counter" id="pointCounter">Точок: 0 (мінімум 3)</span>
+    </div>
+
+    <div class="legend">
+        <h4>Статус будівництва</h4>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(52, 152, 219, 0.6);"></div>
+            <span>Готовий</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(241, 196, 15, 0.6);"></div>
+            <span>Будується</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(46, 204, 113, 0.6);"></div>
+            <span>Планується</span>
+        </div>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+        <button onclick="startAddingComplex()">➕ Додати ЖК</button>
+        <button onclick="toggleDeleteMode()" class="secondary" id="deleteBtn">🗑️ Видалити ЖК</button>
+        <button onclick="exportData()" class="secondary">💾 Експорт</button>
+        <button onclick="document.getElementById('importFile').click()" class="secondary">📥 Імпорт</button>
+    </div>
+    
+    <!-- Прихований input для вибору файлу -->
+    <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importData(event)">
+
+    <!-- Кнопки для режиму додавання -->
+    <div class="toolbar" id="addingToolbar" style="display: none;">
+        <button onclick="finishDrawing()" class="finish" id="finishBtn" disabled>✅ Завершити (мін. 3 точки)</button>
+        <button onclick="undoLastPoint()" class="secondary">↩️ Відмінити точку</button>
+        <button onclick="cancelAdding()" class="btn-cancel">❌ Скасувати</button>
+    </div>
+
+    <!-- Модальне вікно для додавання ЖК -->
+    <div class="modal" id="addModal">
+        <div class="modal-content">
+            <h3>Додати новий ЖК</h3>
+            <label>Назва ЖК</label>
+            <input type="text" id="complexName" placeholder="наприклад: ЖК Злагода">
+            
+            <label>Ціна</label>
+            <input type="text" id="complexPrice" placeholder="від 5.5 млн грн">
+            
+            <label>Статус</label>
+            <select id="complexStatus">
+                <option value="ready">Готовий</option>
+                <option value="building" selected>Будується</option>
+                <option value="planned">Планується</option>
+            </select>
+            
+            <label>Опис</label>
+            <textarea id="complexDescription" rows="2" placeholder="Короткий опис ЖК"></textarea>
+            
+            <label>Поверховість</label>
+            <input type="text" id="complexFloors" placeholder="25 поверхів">
+            
+            <label>Забудовник</label>
+            <input type="text" id="complexDeveloper" placeholder="Назва компанії">
+            
+            <div id="coordinatesInfo" style="margin: 10px 0; color: #27ae60; font-size: 12px;"></div>
+            
+            <div class="modal-buttons">
+                <button class="btn-save" onclick="saveComplex()">Зберегти</button>
+                <button class="btn-cancel" onclick="cancelAdding()">Скасувати</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script>
+        // Ініціалізація Telegram WebApp
+        let tg = null;
+        if (window.Telegram && window.Telegram.WebApp) {
+            tg = window.Telegram.WebApp;
+            tg.expand();
+            tg.ready();
+            document.body.style.backgroundColor = tg.backgroundColor || '#ffffff';
+        }
+
+        // Змінні для режиму додавання
+        let isAddingMode = false;
+        let isDeleteMode = false;
+        let tempMarkers = [];
+        let tempCoordinates = [];
+        let tempPolygon = null;
+        let tempLines = [];
+        let polygonObjects = {};
+
+        // Ініціалізація карти
+        const map = L.map('map', {
+            center: [50.4501, 30.5234],
+            zoom: 13,
+            tap: true,
+            tapTolerance: 15,
+            touchZoom: true,
+            dragging: true,
+            zoomControl: true
+        });
+
+        // Додаємо тайли
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Дані про ЖК
+        let residentialComplexes = [
+            {
+                name: "ЖК Злагода",
+                coordinates: [
+                    [50.4397, 30.6189],
+                    [50.4405, 30.6209],
+                    [50.4391, 30.6218],
+                    [50.4383, 30.6198]
+                ],
+                price: "від 45 000 грн/м²",
+                status: "building",
+                description: "Сучасний житловий комплекс біля метро",
+                floors: "25 поверхів",
+                developer: "Будівельна компанія"
+            },
+            {
+                name: "ЖК Зарічний",
+                coordinates: [
+                    [50.462, 30.638],
+                    [50.463, 30.642],
+                    [50.460, 30.643],
+                    [50.459, 30.639]
+                ],
+                price: "від 6.98 млн грн",
+                status: "building",
+                description: "Сучасний житловий комплекс на березі",
+                floors: "25 поверхів",
+                developer: "Будівельна компанія ABC"
+            },
+            {
+                name: "ЖК Ріверсайд",
+                coordinates: [
+                    [50.455, 30.625],
+                    [50.456, 30.628],
+                    [50.454, 30.629],
+                    [50.453, 30.626]
+                ],
+                price: "від 5.2 млн грн",
+                status: "ready",
+                description: "Готовий до заселення",
+                floors: "16 поверхів",
+                developer: "Будівельна компанія XYZ"
+            }
+        ];
+
+        const statusColors = {
+            ready: 'rgba(52, 152, 219, 0.6)',
+            building: 'rgba(241, 196, 15, 0.6)',
+            planned: 'rgba(46, 204, 113, 0.6)'
+        };
+
+        const statusBorders = {
+            ready: '#3498db',
+            building: '#f39c12',
+            planned: '#2ecc71'
+        };
+
+        // Функція для відображення ЖК на карті
+        function renderComplexes() {
+            Object.values(polygonObjects).forEach(obj => {
+                map.removeLayer(obj.polygon);
+                if (obj.marker) map.removeLayer(obj.marker);
+            });
+            polygonObjects = {};
+
+            residentialComplexes.forEach((complex, index) => {
+                const polygon = L.polygon(complex.coordinates, {
+                    color: statusBorders[complex.status],
+                    fillColor: statusColors[complex.status],
+                    fillOpacity: 0.5,
+                    weight: 3,
+                    className: isDeleteMode ? 'deletable-polygon' : ''
+                }).addTo(map);
+
+                const popupContent = `
+                    <div class="popup-content">
+                        <h3>${complex.name}</h3>
+                        <p><strong>Опис:</strong> ${complex.description}</p>
+                        <p><strong>Поверховість:</strong> ${complex.floors}</p>
+                        <p><strong>Забудовник:</strong> ${complex.developer}</p>
+                        <p class="price">${complex.price}</p>
+                        <button onclick="showDetails('${complex.name}')">Детальніше</button>
+                    </div>
+                `;
+
+                if (!isDeleteMode) {
+                    polygon.bindPopup(popupContent, {
+                        maxWidth: 300,
+                        closeButton: true
+                    });
+                } else {
+                    polygon.on('click', function() {
+                        if (confirm(`Видалити "${complex.name}"?`)) {
+                            deleteComplex(index);
+                        }
+                    });
+                }
+
+                const center = polygon.getBounds().getCenter();
+                const marker = L.marker(center, {
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background: white; padding: 4px 8px; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size: 11px; font-weight: bold; white-space: nowrap;">${complex.name}</div>`,
+                        iconSize: [100, 30],
+                        iconAnchor: [50, 15]
+                    })
+                }).addTo(map);
+
+                polygonObjects[index] = { polygon, marker };
+            });
+        }
+
+        renderComplexes();
+
+        // Режим додавання нового ЖК
+        function startAddingComplex() {
+            // Вимикаємо режим видалення якщо він був активний
+            if (isDeleteMode) {
+                isDeleteMode = false;
+                const btn = document.getElementById('deleteBtn');
+                btn.style.background = '#95a5a6';
+                btn.textContent = '🗑️ Видалити ЖК';
+                map.getContainer().classList.remove('delete-cursor');
+                
+                // Перемальовуємо полігони без режиму видалення
+                renderComplexes();
+            }
+            
+            isAddingMode = true;
+            tempMarkers = [];
+            tempCoordinates = [];
+            tempPolygon = null;
+            tempLines = [];
+            
+            document.getElementById('infoBanner').classList.add('active');
+            document.getElementById('infoBanner').classList.remove('delete-mode');
+            document.getElementById('infoBanner').innerHTML = '📍 Клікайте на карті, щоб позначити кути території ЖК<br><span class="point-counter" id="pointCounter">Точок: 0 (мінімум 3)</span>';
+            document.getElementById('toolbar').style.display = 'none';
+            document.getElementById('addingToolbar').style.display = 'flex';
+            updatePointCounter();
+            
+            // Видаляємо старі обробники та додаємо нові
+            map.off('click');
+            map.on('click', onMapClick);
+        }
+
+        function onMapClick(e) {
+            if (!isAddingMode) {
+                console.log('Not in adding mode');
+                return;
+            }
+            
+            console.log('Click registered:', e.latlng);
+            
+            // Додаємо маркер
+            const marker = L.marker(e.latlng, {
+                icon: L.divIcon({
+                    className: 'temp-marker',
+                    html: `<div style="background: #e74c3c; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>`,
+                    iconSize: [12, 12],
+                    iconAnchor: [6, 6]
+                })
+            }).addTo(map);
+            
+            tempMarkers.push(marker);
+            tempCoordinates.push([e.latlng.lat, e.latlng.lng]);
+            
+            // Оновлюємо лічильник
+            updatePointCounter();
+            
+            // Малюємо лінії між точками
+            if (tempCoordinates.length > 1) {
+                const line = L.polyline([
+                    tempCoordinates[tempCoordinates.length - 2],
+                    tempCoordinates[tempCoordinates.length - 1]
+                ], {
+                    color: '#e74c3c',
+                    weight: 2,
+                    dashArray: '5, 5',
+                    className: 'temp-line'
+                }).addTo(map);
+                tempLines.push(line);
+            }
+            
+            // Оновлюємо тимчасовий полігон (від 3 точок)
+            if (tempCoordinates.length >= 3) {
+                if (tempPolygon) {
+                    map.removeLayer(tempPolygon);
+                }
+                
+                tempPolygon = L.polygon(tempCoordinates, {
+                    color: '#e74c3c',
+                    fillColor: 'rgba(231, 76, 60, 0.3)',
+                    fillOpacity: 0.5,
+                    weight: 3,
+                    dashArray: '10, 5',
+                    className: 'temp-polygon'
+                }).addTo(map);
+                
+                // Активуємо кнопку завершення
+                document.getElementById('finishBtn').disabled = false;
+                document.getElementById('finishBtn').textContent = `✅ Завершити (${tempCoordinates.length} точок)`;
+            }
+        }
+
+        function updatePointCounter() {
+            const counter = document.getElementById('pointCounter');
+            const count = tempCoordinates.length;
+            counter.textContent = `Точок: ${count} (мінімум 3)`;
+            
+            if (count >= 3) {
+                counter.style.color = '#27ae60';
+            } else {
+                counter.style.color = '#ffffff';
+            }
+        }
+
+        function undoLastPoint() {
+            if (tempCoordinates.length === 0) return;
+            
+            // Видаляємо останній маркер
+            const lastMarker = tempMarkers.pop();
+            map.removeLayer(lastMarker);
+            
+            // Видаляємо координату
+            tempCoordinates.pop();
+            
+            // Видаляємо останню лінію
+            if (tempLines.length > 0) {
+                const lastLine = tempLines.pop();
+                map.removeLayer(lastLine);
+            }
+            
+            // Оновлюємо полігон
+            if (tempPolygon) {
+                map.removeLayer(tempPolygon);
+                tempPolygon = null;
+            }
+            
+            if (tempCoordinates.length >= 3) {
+                tempPolygon = L.polygon(tempCoordinates, {
+                    color: '#e74c3c',
+                    fillColor: 'rgba(231, 76, 60, 0.3)',
+                    fillOpacity: 0.5,
+                    weight: 3,
+                    dashArray: '10, 5'
+                }).addTo(map);
+            }
+            
+            // Оновлюємо лічильник
+            updatePointCounter();
+            
+            // Оновлюємо кнопку
+            if (tempCoordinates.length < 3) {
+                document.getElementById('finishBtn').disabled = true;
+                document.getElementById('finishBtn').textContent = '✅ Завершити (мін. 3 точки)';
+            } else {
+                document.getElementById('finishBtn').textContent = `✅ Завершити (${tempCoordinates.length} точок)`;
+            }
+        }
+
+        function finishDrawing() {
+            if (tempCoordinates.length < 3) {
+                alert('Потрібно мінімум 3 точки для створення території!');
+                return;
+            }
+            
+            document.getElementById('infoBanner').classList.remove('active');
+            document.getElementById('coordinatesInfo').textContent = `✅ Територія позначена! (${tempCoordinates.length} точок)`;
+            document.getElementById('addModal').classList.add('active');
+            
+            // Видаляємо обробник кліків
+            map.off('click', onMapClick);
+        }
+
+        function saveComplex() {
+            const newComplex = {
+                name: document.getElementById('complexName').value,
+                coordinates: tempCoordinates,
+                price: document.getElementById('complexPrice').value,
+                status: document.getElementById('complexStatus').value,
+                description: document.getElementById('complexDescription').value,
+                floors: document.getElementById('complexFloors').value,
+                developer: document.getElementById('complexDeveloper').value
+            };
+            
+            if (!newComplex.name) {
+                alert('Введіть назву ЖК!');
+                return;
+            }
+            
+            residentialComplexes.push(newComplex);
+            renderComplexes();
+            cancelAdding();
+            
+            alert(`ЖК "${newComplex.name}" успішно додано з ${tempCoordinates.length} точками!\n\nКоординати:\n${JSON.stringify(tempCoordinates, null, 2)}`);
+        }
+
+        function cancelAdding() {
+            isAddingMode = false;
+            
+            // Видаляємо всі тимчасові елементи
+            tempMarkers.forEach(marker => map.removeLayer(marker));
+            tempLines.forEach(line => map.removeLayer(line));
+            if (tempPolygon) map.removeLayer(tempPolygon);
+            
+            tempMarkers = [];
+            tempCoordinates = [];
+            tempLines = [];
+            tempPolygon = null;
+            
+            document.getElementById('infoBanner').classList.remove('active', 'delete-mode');
+            document.getElementById('addModal').classList.remove('active');
+            document.getElementById('coordinatesInfo').textContent = '';
+            document.getElementById('toolbar').style.display = 'flex';
+            document.getElementById('addingToolbar').style.display = 'none';
+            document.getElementById('finishBtn').disabled = true;
+            
+            // Видаляємо обробник кліків
+            map.off('click', onMapClick);
+            
+            // Очищаємо форму
+            document.getElementById('complexName').value = '';
+            document.getElementById('complexPrice').value = '';
+            document.getElementById('complexDescription').value = '';
+            document.getElementById('complexFloors').value = '';
+            document.getElementById('complexDeveloper').value = '';
+        }
+
+        // Режим видалення ЖК
+        function toggleDeleteMode() {
+            isDeleteMode = !isDeleteMode;
+            const btn = document.getElementById('deleteBtn');
+            const banner = document.getElementById('infoBanner');
+            
+            // Видаляємо всі обробники кліків
+            map.off('click');
+            
+            if (isDeleteMode) {
+                btn.style.background = '#e74c3c';
+                btn.textContent = '❌ Вимкнути видалення';
+                banner.innerHTML = '🗑️ Клікніть на ЖК, щоб видалити його';
+                banner.classList.add('active', 'delete-mode');
+                map.getContainer().classList.add('delete-cursor');
+            } else {
+                btn.style.background = '#95a5a6';
+                btn.textContent = '🗑️ Видалити ЖК';
+                banner.classList.remove('active', 'delete-mode');
+                map.getContainer().classList.remove('delete-cursor');
+            }
+            
+            renderComplexes();
+        }
+
+        // Видалення ЖК
+        function deleteComplex(index) {
+            const deletedName = residentialComplexes[index].name;
+            residentialComplexes.splice(index, 1);
+            renderComplexes();
+            alert(`ЖК "${deletedName}" видалено!`);
+        }
+
+        // Експорт даних
+        function exportData() {
+            const dataStr = JSON.stringify(residentialComplexes, null, 2);
+            const blob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'residential_complexes.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            console.log('Дані для index.html:');
+            console.log(dataStr);
+            
+            alert('✅ Файл residential_complexes.json завантажено!\n\nДані також виведені в консоль (F12)');
+        }
+
+        // Імпорт даних
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    
+                    // Перевіряємо чи це масив
+                    if (!Array.isArray(importedData)) {
+                        alert('❌ Помилка: Файл повинен містити масив ЖК!');
+                        return;
+                    }
+                    
+                    // Перевіряємо структуру даних
+                    const isValid = importedData.every(complex => 
+                        complex.name && 
+                        complex.coordinates && 
+                        Array.isArray(complex.coordinates) &&
+                        complex.price &&
+                        complex.status
+                    );
+                    
+                    if (!isValid) {
+                        alert('❌ Помилка: Невірна структура даних!\n\nПеревірте, що кожен ЖК має: name, coordinates, price, status');
+                        return;
+                    }
+                    
+                    // Питаємо користувача що робити
+                    const action = confirm(
+                        `📥 Знайдено ${importedData.length} ЖК\n\n` +
+                        `OK - Додати до існуючих (${residentialComplexes.length} ЖК)\n` +
+                        `Скасувати - Замінити всі дані`
+                    );
+                    
+                    if (action) {
+                        // Додаємо до існуючих
+                        residentialComplexes = residentialComplexes.concat(importedData);
+                        alert(`✅ Додано ${importedData.length} нових ЖК!\n\nВсього тепер: ${residentialComplexes.length} ЖК`);
+                    } else {
+                        // Замінюємо всі дані
+                        residentialComplexes = importedData;
+                        alert(`✅ Імпортовано ${importedData.length} ЖК!\n\nПопередні дані замінено.`);
+                    }
+                    
+                    // Оновлюємо карту
+                    renderComplexes();
+                    
+                } catch (error) {
+                    alert('❌ Помилка читання файлу:\n\n' + error.message);
+                    console.error('Import error:', error);
+                }
+            };
+            
+            reader.readAsText(file);
+            
+            // Очищаємо input щоб можна було імпортувати той самий файл знову
+            event.target.value = '';
+        }
+
+        function showDetails(complexName) {
+            const complex = residentialComplexes.find(c => c.name === complexName);
+            
+            if (tg) {
+                tg.sendData(JSON.stringify({
+                    action: 'show_details',
+                    complex: complexName,
+                    data: complex
+                }));
+            } else {
+                alert(`Деталі про: ${complexName}\n\n${complex.description}\n${complex.price}`);
+            }
+        }
+
+        map.on('popupopen', function(e) {
+            const px = map.project(e.popup._latlng);
+            px.y -= e.popup._container.clientHeight / 2;
+            map.panTo(map.unproject(px), {animate: true});
+        });
+    </script>
+</body>
+</html>
