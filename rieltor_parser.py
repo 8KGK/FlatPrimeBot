@@ -236,7 +236,6 @@ def _parse_img_tags(soup):
         if src:
             # Фільтруємо тільки зображення оголошень
             if any(keyword in src for keyword in ['rieltor.ua', 'estate', 'flats', 'realty']):
-                # Змінюємо розмір на максимальний
                 src = _maximize_image_size(src)
                 photo_urls.append(src)
 
@@ -244,9 +243,6 @@ def _parse_img_tags(soup):
 
 
 def _parse_data_attributes(soup):
-    """
-    Парсить data-* атрибути на сторінці
-    """
     photo_urls = []
 
     # Шукаємо елементи з data-атрибутами

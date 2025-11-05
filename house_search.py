@@ -10,13 +10,6 @@ from typing import Optional, List, Dict
 def search_house_by_address(address: str, house_number: str) -> Optional[List[Dict]]:
     """
     Шукає будинок за точною адресою
-
-    Args:
-        address: Назва вулиці (наприклад: "Хрещатик")
-        house_number: Номер будинку (наприклад: "15")
-
-    Returns:
-        Список знайдених будинків або None
     """
     try:
         conn = get_connection()
@@ -45,12 +38,6 @@ def search_house_by_address(address: str, house_number: str) -> Optional[List[Di
 def search_houses_by_street(address: str) -> Optional[List[Dict]]:
     """
     Шукає всі будинки на вулиці
-
-    Args:
-        address: Назва вулиці
-
-    Returns:
-        Список знайдених будинків або None
     """
     try:
         conn = get_connection()
@@ -79,12 +66,6 @@ def search_houses_by_street(address: str) -> Optional[List[Dict]]:
 def search_houses_by_region(region: str) -> Optional[List[Dict]]:
     """
     Шукає будинки за районом
-
-    Args:
-        region: Назва району
-
-    Returns:
-        Список знайдених будинків або None
     """
     try:
         conn = get_connection()
@@ -113,12 +94,6 @@ def search_houses_by_region(region: str) -> Optional[List[Dict]]:
 def format_house_info(house: Dict) -> str:
     """
     Форматує інформацію про будинок для відображення
-
-    Args:
-        house: Словник з даними про будинок
-
-    Returns:
-        Відформатований текст
     """
     lines = [
         f"🏠 **{house['address']}, {house['house_number']}**",
@@ -155,9 +130,6 @@ def format_house_info(house: Dict) -> str:
 def get_total_houses_count() -> int:
     """
     Отримує загальну кількість будинків в базі
-
-    Returns:
-        Кількість будинків
     """
     try:
         conn = get_connection()
@@ -179,9 +151,6 @@ def get_total_houses_count() -> int:
 def get_houses_count_by_region() -> Dict[str, int]:
     """
     Отримує кількість будинків по районах
-
-    Returns:
-        Словник {район: кількість}
     """
     try:
         conn = get_connection()

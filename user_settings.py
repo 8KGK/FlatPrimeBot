@@ -14,27 +14,6 @@ WATERMARK_POSITIONS = {
 }
 
 
-def create_user_settings_table():
-    """
-    Створює таблицю налаштувань користувачів якщо не існує
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_settings (
-            telegram_user_id BIGINT PRIMARY KEY,
-            watermark_position VARCHAR(20) DEFAULT 'center',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-
 def get_watermark_position(telegram_user_id):
     """
     Отримує позицію водяного знака для користувача
@@ -66,8 +45,6 @@ def set_watermark_position(telegram_user_id, position):
 
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Використовуємо INSERT ... ON DUPLICATE KEY UPDATE
     cursor.execute("""
         INSERT INTO user_settings (telegram_user_id, watermark_position)
         VALUES (%s, %s)
@@ -84,7 +61,4 @@ def set_watermark_position(telegram_user_id, position):
 
 
 def get_position_name(position):
-    """
-    Повертає українську назву позиції
-    """
     return WATERMARK_POSITIONS.get(position, 'По центру')

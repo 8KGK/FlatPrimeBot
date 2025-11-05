@@ -7,7 +7,8 @@ import re
 import zipfile
 from datetime import datetime
 from io import BytesIO
-
+from dotenv import load_dotenv
+import os
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -16,9 +17,9 @@ from auth import (
     get_authorized_user, set_pending_auth,
     get_pending_auth, clear_pending_auth, init_sessions
 )
-from config import BOT_TOKEN
-from database import get_all_users, verify_password, get_user_name, create_sessions_table
-from house_parser import parse_all_districts, create_houses_table
+
+from database import get_all_users, verify_password, get_user_name
+from house_parser import parse_all_districts
 from house_search import (
     search_house,
     format_house_info,
@@ -26,14 +27,17 @@ from house_search import (
 )
 from image_processor import process_single_image
 from olx_parser import download_olx_photos, parse_olx_parameters
+from lun_parser import download_lun_photos, is_lun_url
 from rieltor_parser import download_rieltor_photos, is_rieltor_url, parse_rieltor_parameters
 from user_settings import (
-    create_user_settings_table,
     get_watermark_position,
     set_watermark_position,
     get_position_name,
     WATERMARK_POSITIONS
 )
+
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Telegram username адміністратора для оновлення бази будинків
 ADMIN_USERNAME = "r24npo9"
@@ -85,7 +89,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показує головне меню з функціями бота"""
+
     user_data = get_authorized_user(update.effective_user.id)
 
     # Створюємо клавіатуру з функціями
@@ -112,7 +116,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє текстові повідомлення"""
+
     telegram_user_id = update.effective_user.id
     text = update.message.text.strip()
 
@@ -200,7 +204,7 @@ async def handle_name_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, password: str):
-    """Обробляє введення паролю"""
+
     telegram_user_id = update.effective_user.id
 
 
@@ -223,7 +227,7 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
 
 async def show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показує меню налаштувань"""
+
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     telegram_user_id = update.effective_user.id
@@ -251,7 +255,7 @@ async def show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_watermark_position_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє зміну позиції водяного знака"""
+
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     query = update.callback_query
@@ -286,7 +290,7 @@ async def handle_watermark_position_change(update: Update, context: ContextTypes
 
 
 async def process_photo_batch(context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє пакет фото після закінчення таймауту"""
+
     job_data = context.job.data
     telegram_user_id = job_data['user_id']
     chat_id = job_data['chat_id']
@@ -466,7 +470,7 @@ def format_parameters(parameters, site_name):
 
 
 async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє посилання на OLX, Rieltor.ua або LUN.ua та відправляє архів з фото"""
+    """Обробляє посилання на OLX, Rieltor.ua та відправляє архів з фото"""
     telegram_user_id = update.effective_user.id
 
     # Перевірка авторизації
@@ -481,16 +485,26 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     parameters = {}
 
+    # Визначаємо тип сайту та завантажуємо фото
     if re.match(r'https?://(?:www\.)?olx\.ua/', url):
         site_name = "OLX"
         await update.message.reply_text("🔍 Завантажую інформацію з OLX...")
         photo_urls = download_olx_photos(url)
         parameters = parse_olx_parameters(url)
+
     elif is_rieltor_url(url):
         site_name = "Rieltor.ua"
         await update.message.reply_text("🔍 Завантажую інформацію з Rieltor.ua...")
         photo_urls = download_rieltor_photos(url)
         parameters = parse_rieltor_parameters(url)
+
+
+
+    elif is_lun_url(url):
+        site_name = "LUN.ua"
+        await update.message.reply_text("🔍 Завантажую інформацію з LUN.ua...\n⏳ Це може зайняти 20-30 секунд")
+        # Викликаємо синхронну функцію для LUN (Selenium)
+        photo_urls = download_lun_photos(url)
 
 
     else:
@@ -499,7 +513,7 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Підтримуються сайти:\n"
             "• OLX: https://www.olx.ua/d/uk/obyavlenie/...\n"
             "• Rieltor.ua: https://rieltor.ua/flats-sale/view/...\n"
-            "• LUN.ua: https://lun.ua/realty/..."
+            "• LUN.ua: https://lun.ua/..."
         )
         return
 
@@ -578,10 +592,9 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{site_name.lower().replace('.', '_')}_photos_{timestamp}.zip"
 
-            # Відправляємо архів без повторення параметрів
+            # Відправляємо архів
             caption = f"🎉 Готово! Оброблено {processed_count} з {len(photo_urls)} фото"
 
-            # Відправляємо архів
             await update.message.reply_document(
                 document=zip_buffer,
                 filename=filename,
@@ -595,7 +608,7 @@ async def process_olx_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_house_info_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показує меню для пошуку інформації про будинки"""
+
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     # Отримуємо кількість будинків в базі
@@ -630,7 +643,7 @@ async def show_house_info_menu(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_district_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє вибір району"""
+
     query = update.callback_query
     await query.answer()
 
@@ -652,7 +665,7 @@ async def handle_district_selection(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_direct_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє прямий пошук за адресою"""
+
     query = update.callback_query
     await query.answer()
 
@@ -671,7 +684,7 @@ async def handle_direct_search(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_house_search(update: Update, context: ContextTypes.DEFAULT_TYPE, address: str):
-    """Обробляє пошук будинку за адресою"""
+
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     # Очищаємо стан пошуку
@@ -728,7 +741,7 @@ async def handle_house_search(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_show_all_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показує всі знайдені результати"""
+
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     query = update.callback_query
@@ -784,9 +797,7 @@ async def handle_show_all_results(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def update_houses_database(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Оновлює базу даних будинків (тільки для адміністратора)
-    """
+
     telegram_user_id = update.effective_user.id
     username = update.effective_user.username
 
@@ -801,9 +812,6 @@ async def update_houses_database(update: Update, context: ContextTypes.DEFAULT_T
         "🚀 Починаю оновлення бази даних будинків...\n"
         "⏳ Це може зайняти 5-10 хвилин"
     )
-
-    # Створюємо таблицю якщо не існує
-    create_houses_table()
 
     # Словник для передачі прогресу між потоками
     progress_data = {
@@ -865,7 +873,7 @@ async def update_houses_database(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє callback запити від inline кнопок"""
+
     query = update.callback_query
 
     if query.data.startswith("district_"):
@@ -879,17 +887,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 
 def main():
-    """Запускає бота"""
-    # Створюємо таблицю сесій якщо не існує
-    create_sessions_table()
 
-    # Створюємо таблицю будинків якщо не існує
-    create_houses_table()
-
-    # Створюємо таблицю налаштувань користувачів
-    create_user_settings_table()
-
-    # Завантажуємо активні сесії з БД
     init_sessions()
 
     # Створюємо додаток з JobQueue
@@ -913,18 +911,6 @@ def main():
     # Додаємо обробник callback запитів
     from telegram.ext import CallbackQueryHandler
     application.add_handler(CallbackQueryHandler(callback_query_handler))
-
-    # Запускаємо бота
-    print("🤖 Бот запущено!")
-    print("🔐 Система авторизації активна")
-    print("🔗 Підключено до бази даних MySQL")
-    print("💾 Сесії зберігаються в БД")
-    print("📦 Фото з OLX, Rieltor.ua та LUN.ua відправляються ZIP архівом")
-    print("📋 Парсинг параметрів квартир активний")
-    print("🏠 База даних будинків Києва активна")
-    print("📸 Пакетна обробка фото активна (>3 фото = ZIP архів)")
-    print("⚙️ Персональні налаштування водяного знака активні")
-    print("✅ JobQueue ініціалізовано!")
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

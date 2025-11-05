@@ -2,23 +2,27 @@
 Модуль для роботи з базою даних MySQL
 Авторизація користувачів
 """
+import os
 
 import mysql.connector
 from typing import List, Optional, Tuple
+from dotenv import load_dotenv
 
+load_dotenv()
 
 def get_connection():
-    """
-    Створює з'єднання з базою даних MySQL
-    """
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="990099",
-        database="flat",
-        autocommit=True
-    )
-
+    try:
+        conn = mysql.connector.connect(
+            host=os.getenv("DB_HOST"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME"),
+            port=int(os.getenv("DB_PORT", 3306))
+        )
+        return conn
+    except Exception as e:
+        print(f"❌ Помилка підключення до БД: {e}")
+        raise
 
 def get_all_users() -> List[Tuple[int, str]]:
     """
@@ -104,31 +108,6 @@ def create_users_table():
         print("✅ Таблиця користувачів готова")
     except Exception as e:
         print(f"❌ Помилка створення таблиці: {e}")
-
-
-def create_sessions_table():
-    """
-    Створює таблицю сесій якщо вона не існує
-    """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                telegram_user_id BIGINT PRIMARY KEY,
-                user_id INT NOT NULL,
-                user_name VARCHAR(255) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        cursor.close()
-        conn.close()
-
-        print("✅ Таблиця сесій готова")
-    except Exception as e:
-        print(f"❌ Помилка створення таблиці сесій: {e}")
 
 
 def save_session(telegram_user_id: int, user_id: int, user_name: str):

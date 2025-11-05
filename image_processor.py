@@ -10,11 +10,6 @@ from config import WATERMARK_PATH
 def process_single_image(image, watermark_position='center'):
     """
     Обробляє одне зображення: змінює розмір та додає водяний знак
-
-    Args:
-        image: PIL Image об'єкт
-        watermark_position: позиція водяного знака
-            ('center', 'top_left', 'top_right', 'bottom_left', 'bottom_right')
     """
     try:
         # Конвертуємо в RGB якщо потрібно
@@ -57,10 +52,6 @@ def _resize_if_needed(image):
 def _add_watermark(image, position='center'):
     """
     Додає водяний знак на зображення
-
-    Args:
-        image: PIL Image об'єкт
-        position: позиція водяного знака
     """
     if not os.path.exists(WATERMARK_PATH):
         print(f"⚠️ Водяний знак не знайдено за шляхом: {WATERMARK_PATH}")

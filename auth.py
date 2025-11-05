@@ -13,9 +13,7 @@ pending_auth: Dict[int, int] = {}
 
 
 def init_sessions():
-    """
-    Завантажує всі активні сесії з БД при запуску бота
-    """
+
     global authorized_users
     authorized_users = load_all_sessions()
     print(f"✅ Завантажено {len(authorized_users)} активних сесій")

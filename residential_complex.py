@@ -6,7 +6,6 @@ from database import get_connection
 
 
 def create_residential_complexes_table():
-    """Створює таблицю для зберігання ЖК"""
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -31,15 +30,6 @@ def create_residential_complexes_table():
 def add_residential_complex(name, url, bank, class_type):
     """
     Додає новий ЖК до бази даних
-
-    Args:
-        name: Назва ЖК
-        url: Посилання на ЖК
-        bank: Берег (Лівий берег / Правий берег)
-        class_type: Клас (Економ/Комфорт / Бізнес / Преміум)
-
-    Returns:
-        True якщо успішно, False якщо помилка
     """
     try:
         connection = get_connection()
@@ -62,13 +52,6 @@ def add_residential_complex(name, url, bank, class_type):
 def get_residential_complexes_by_bank_and_class(bank, class_type):
     """
     Отримує список ЖК за берегом та класом
-
-    Args:
-        bank: Берег (Лівий берег / Правий берег)
-        class_type: Клас (Економ/Комфорт / Бізнес / Преміум)
-
-    Returns:
-        Список словників з інформацією про ЖК
     """
     try:
         connection = get_connection()

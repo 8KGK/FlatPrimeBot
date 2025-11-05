@@ -24,52 +24,8 @@ DISTRICTS = {
 }
 
 
-def create_houses_table():
-    """
-    Створює таблицю будинків якщо не існує
-    """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS houses (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                region VARCHAR(50) NOT NULL,
-                address VARCHAR(255) NOT NULL,
-                house_number VARCHAR(20) NOT NULL,
-                project VARCHAR(150),
-                build_year VARCHAR(50),
-                material VARCHAR(500),
-                floors VARCHAR(100),
-                ceiling_height VARCHAR(50),
-                INDEX idx_region (region),
-                INDEX idx_address (address),
-                INDEX idx_full_address (address, house_number)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        """)
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        print("✅ Таблиця houses готова")
-        return True
-    except Exception as e:
-        print(f"❌ Помилка створення таблиці houses: {e}")
-        return False
-
 
 def clean_address(address):
-    """
-    Очищає адресу від небажаних символів
-
-    Args:
-        address: Рядок з адресою
-
-    Returns:
-        Очищена адреса
-    """
     if not address:
         return address
 
@@ -113,11 +69,9 @@ def extract_houses_from_page(html_content, region_name):
                 if not a_tag:
                     continue
 
-                # Повна адреса: "Ломоносова вулиця 4"
+
                 full_address = a_tag.get_text(strip=True)
 
-                # Розділяємо на вулицю і номер
-                # Останнє слово - номер будинку
                 parts = full_address.rsplit(' ', 1)
                 if len(parts) != 2:
                     continue
@@ -193,9 +147,7 @@ def extract_houses_from_page(html_content, region_name):
 
 
 def get_total_pages(url):
-    """
-    Отримує загальну кількість сторінок для району
-    """
+
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -219,15 +171,6 @@ def get_total_pages(url):
 
 
 def parse_district(district_name, base_url, progress_data=None, is_first_district=False):
-    """
-    Парсить всі сторінки одного району
-
-    Args:
-        district_name: Назва району
-        base_url: Базовий URL району
-        progress_data: Словник для збереження прогресу {'district': '', 'page': 0, 'total': 0, 'found': 0}
-        is_first_district: Чи це перший район (для очищення таблиці)
-    """
     print(f"\n🔍 Парсинг району: {district_name}")
 
     headers = {
@@ -337,12 +280,6 @@ def clear_table_only():
 
 
 def save_houses_batch(houses):
-    """
-    Зберігає один батч будинків в БД (до 50 штук)
-
-    Args:
-        houses: Список будинків для збереження
-    """
     if not houses:
         return True
 
@@ -386,9 +323,6 @@ def save_houses_batch(houses):
 
 
 def get_total_houses_count_direct():
-    """
-    Перевіряє скільки будинків реально в БД
-    """
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -402,9 +336,6 @@ def get_total_houses_count_direct():
 
 
 def parse_all_districts(progress_callback=None):
-    """
-    Парсить всі райони Києва
-    """
     print("🚀 Початок парсингу всіх районів Києва\n")
 
     all_houses = []
@@ -426,5 +357,4 @@ def parse_all_districts(progress_callback=None):
 
 if __name__ == '__main__':
     # Тестовий запуск
-    create_houses_table()
     parse_all_districts()

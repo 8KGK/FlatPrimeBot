@@ -2,9 +2,6 @@
 Конфігураційний файл
 """
 
-# Токен Telegram бота від @BotFather
-BOT_TOKEN = "7578557397:AAFJrdrXv0w8mLfWUQneG4IM1MbOmlRaYSM"
-
 # Шлях до файлу з водяним знаком
 WATERMARK_PATH = "watermark.png"
 
