@@ -62,14 +62,4 @@ Telegram-бот для автоматизации подбора недвижи�
   - `docker-compose.yml`
 - Прочее:
   - `requirements.txt` — зависимости проекта
-  - `index.html` — вспомогательная страница (например, превью/лендинг)
 
----
-
-## 🚀 Быстрый старт (локально)
-
-### 1. Клонируем репозиторий
-
-```bash
-git clone https://github.com/8KGK/FlatPrimeBot.git
-cd FlatPrimeBot
